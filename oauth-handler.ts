@@ -1,7 +1,12 @@
 // oauth-handler.ts - OAuth token management for MCP servers
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { getAuthEntryFilePath } from "./mcp-auth.ts";
+
+// Google auth tokens expire in 60 min; 55-min TTL gives a 5-min safety margin
+const GOOGLE_TOKEN_TTL_MS = 55 * 60 * 1000;
 
 // Token storage path for a server
 function getTokensPath(serverName: string): string {
@@ -53,5 +58,31 @@ export function getStoredTokens(serverName: string): OAuthTokens | undefined {
     };
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Persist a Google auth token with a 55-min TTL.
+ * Used by google-access-token and google-identity-token auth modes.
+ */
+export function writeStoredToken(serverName: string, accessToken: string): void {
+  const tokensPath = getTokensPath(serverName);
+  mkdirSync(dirname(tokensPath), { recursive: true });
+  writeFileSync(tokensPath, JSON.stringify({
+    access_token: accessToken,
+    token_type: "bearer",
+    expiresAt: Date.now() + GOOGLE_TOKEN_TTL_MS,
+  }, null, 2));
+}
+
+/**
+ * Remove the cached token for a server.
+ * Call this when the server returns 401 so the next connect fetches a fresh token
+ * rather than retrying with a revoked one.
+ */
+export function clearStoredTokens(serverName: string): void {
+  const tokensPath = getTokensPath(serverName);
+  if (existsSync(tokensPath)) {
+    try { unlinkSync(tokensPath); } catch { /* ignore */ }
   }
 }

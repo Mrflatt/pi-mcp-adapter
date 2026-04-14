@@ -20,6 +20,8 @@ import { resolveNpxBinary } from "./npx-resolver.ts";
 import { logger } from "./logger.ts";
 import { McpOAuthProvider } from "./mcp-oauth-provider.ts";
 import { extractOAuthConfig, supportsOAuth } from "./mcp-auth-flow.ts";
+import { fetchGoogleAccessToken, fetchGoogleIdentityToken } from "./google-auth.ts";
+import { getStoredTokens, writeStoredToken, clearStoredTokens } from "./oauth-handler.ts";
 import { registerSamplingHandler, type ServerSamplingConfig } from "./sampling-handler.ts";
 import {
   handleUrlElicitation,
@@ -138,7 +140,16 @@ export class McpServerManager {
         status: "connected",
       };
     } catch (error) {
-      // Check for UnauthorizedError - server requires OAuth
+      // Google auth: clear cached token on 401 so the next connect fetches a fresh one
+      const isGoogleAuth = definition.auth === "google-access-token" || definition.auth === "google-identity-token";
+      if (error instanceof UnauthorizedError && isGoogleAuth) {
+        clearStoredTokens(name);
+        await client.close().catch(() => {});
+        await transport.close().catch(() => {});
+        throw error;
+      }
+
+      // OAuth servers: return needs-auth so the caller can start the OAuth flow
       if (error instanceof UnauthorizedError && supportsOAuth(definition)) {
         // Clean up both client and transport before reporting needs-auth.
         await client.close().catch(() => {});
@@ -247,6 +258,24 @@ export class McpServerManager {
         headers["Authorization"] = `Bearer ${token}`;
       }
     }
+
+    // For Google auth, fetch (or reuse cached) token and add to headers
+    if (definition.auth === "google-access-token") {
+      const cached = getStoredTokens(serverName);
+      const token = cached?.access_token ?? await fetchGoogleAccessToken();
+      if (!cached) writeStoredToken(serverName, token);
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    if (definition.auth === "google-identity-token") {
+      const { audience, serviceAccount } = definition.googleAuth ?? {} as any;
+      if (!audience) throw new Error(`google-identity-token requires googleAuth.audience for server "${serverName}"`);
+      if (!serviceAccount) throw new Error(`google-identity-token requires googleAuth.serviceAccount for server "${serverName}"`);
+      const cached = getStoredTokens(serverName);
+      const token = cached?.access_token ?? await fetchGoogleIdentityToken(serviceAccount, audience);
+      if (!cached) writeStoredToken(serverName, token);
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
 
     // Create request init with headers (Authorization now included for bearer auth)
     const requestInit = Object.keys(headers).length > 0 ? { headers } : undefined;
