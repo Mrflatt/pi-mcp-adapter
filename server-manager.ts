@@ -8,6 +8,9 @@ import {
   type ReadResourceResult,
   type UrlElicitationRequiredError,
 } from "@modelcontextprotocol/sdk/types.js";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv-provider.js";
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
 import type {
   McpTool,
   McpResource,
@@ -40,6 +43,25 @@ interface ServerConnection {
   inFlight: number;
   status: "connected" | "closed" | "needs-auth";
 }
+
+// Pre-configured AJV validator — same config as SDK default + Google-proprietary formats
+const _googleAjv = new Ajv({
+  strict: false,
+  validateFormats: true,
+  validateSchema: false,
+  allErrors: true,
+});
+addFormats(_googleAjv);
+const GOOGLE_FORMATS = [
+  "google-duration",
+  "google-datetime",
+  "google-fieldmask",
+  "google-int64",
+  "google-uint32",
+  "google-uint64",
+];
+for (const fmt of GOOGLE_FORMATS) _googleAjv.addFormat(fmt, { validate: () => true });
+const googleSchemaValidator = new AjvJsonSchemaValidator(_googleAjv);
 
 type UiStreamListener = (serverName: string, notification: ServerStreamResultPatchNotification["params"]) => void;
 
@@ -89,6 +111,7 @@ export class McpServerManager {
     definition: ServerDefinition
   ): Promise<ServerConnection> {
     const client = this.createClient(name);
+
 
     let transport: Transport;
 
@@ -190,9 +213,11 @@ export class McpServerManager {
 
   private createClient(serverName: string): Client {
     const capabilities = this.buildClientCapabilities();
+    const options: Record<string, unknown> = { jsonSchemaValidator: googleSchemaValidator };
+    if (Object.keys(capabilities).length > 0) options.capabilities = capabilities;
     const client = new Client(
       { name: `pi-mcp-${serverName}`, version: "1.0.0" },
-      Object.keys(capabilities).length > 0 ? { capabilities } : undefined,
+      options as any,
     );
     if (this.samplingConfig) {
       registerSamplingHandler(client, { ...this.samplingConfig, serverName });
@@ -304,7 +329,7 @@ export class McpServerManager {
 
     try {
       // Create a test client to verify the transport works
-      const testClient = new Client({ name: "pi-mcp-probe", version: "2.1.2" });
+      const testClient = new Client({ name: "pi-mcp-probe", version: "2.1.2" }, { jsonSchemaValidator: googleSchemaValidator });
       await testClient.connect(streamableTransport);
       await testClient.close().catch(() => {});
       // Close probe transport before creating fresh one
