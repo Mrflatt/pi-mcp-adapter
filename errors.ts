@@ -217,3 +217,14 @@ export function wrapError(error: unknown, context?: McpUiErrorContext): McpUiErr
 export function isErrorCode(error: unknown, code: string): boolean {
   return error instanceof McpUiError && error.code === code;
 }
+
+/**
+ * Error from an MCP tool call where the server returned isError: true.
+ * Thrown to propagate isError to pi without double-formatting in catch blocks.
+ */
+export class McpToolCallError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "McpToolCallError";
+  }
+}

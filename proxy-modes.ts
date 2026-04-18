@@ -10,6 +10,7 @@ import { transformMcpContent } from "./tool-registrar.ts";
 import { maybeStartUiSession, type UiSessionRuntime } from "./ui-session.ts";
 import { formatAuthRequiredMessage, truncateAtWord } from "./utils.ts";
 import { authenticate, completeAuthFromInput, startAuth, supportsOAuth } from "./mcp-auth-flow.ts";
+import { McpToolCallError } from "./errors.ts";
 
 type ProxyToolResult = AgentToolResult<Record<string, unknown>>;
 
@@ -869,14 +870,7 @@ export async function executeCall(
         .join("\n");
 
       if (result.isError) {
-        let errorWithSchema = `Error: ${mcpText || "Tool execution failed"}`;
-        if (toolMeta.inputSchema) {
-          errorWithSchema += `\n\nExpected parameters:\n${formatSchema(toolMeta.inputSchema)}`;
-        }
-        return {
-          content: [{ type: "text" as const, text: errorWithSchema }],
-          details: { mode: "call", error: "tool_error", mcpResult: result },
-        };
+        throw new McpToolCallError(mcpText || "Tool execution failed");
       }
 
       const resultText = mcpText || "(empty result)";
@@ -900,15 +894,7 @@ export async function executeCall(
         .map((c) => (c as { text: string }).text)
         .join("\n") || "Tool execution failed";
 
-      let errorWithSchema = `Error: ${errorText}`;
-      if (toolMeta.inputSchema) {
-        errorWithSchema += `\n\nExpected parameters:\n${formatSchema(toolMeta.inputSchema)}`;
-      }
-
-      return {
-        content: [{ type: "text" as const, text: errorWithSchema }],
-        details: { mode: "call", error: "tool_error", mcpResult: result },
-      };
+      throw new McpToolCallError(errorText);
     }
 
     return {
@@ -927,6 +913,7 @@ export async function executeCall(
         details: { mode: "call", error: "url_elicitation_required", server: serverName, action },
       };
     }
+    if (error instanceof McpToolCallError) throw error;
     const message = error instanceof Error ? error.message : String(error);
     uiSession?.sendToolCancelled(message);
 
@@ -935,10 +922,7 @@ export async function executeCall(
       errorWithSchema += `\n\nExpected parameters:\n${formatSchema(toolMeta.inputSchema)}`;
     }
 
-    return {
-      content: [{ type: "text" as const, text: errorWithSchema }],
-      details: { mode: "call", error: "call_failed", message },
-    };
+    throw new Error(errorWithSchema);
   } finally {
     if (uiSession?.reused) {
       uiSession.close();

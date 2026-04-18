@@ -9,6 +9,7 @@ import { formatSchema } from "./tool-metadata.ts";
 import { transformMcpContent } from "./tool-registrar.ts";
 import { maybeStartUiSession, type UiSessionRuntime } from "./ui-session.ts";
 import { formatToolName, isToolExcluded } from "./types.ts";
+import { McpToolCallError } from "./errors.ts";
 import { resourceNameToToolName } from "./resource-tools.ts";
 import { authenticate, supportsOAuth } from "./mcp-auth-flow.ts";
 import { formatAuthRequiredMessage } from "./utils.ts";
@@ -383,14 +384,8 @@ export function createDirectToolExecutor(
       const content = transformMcpContent(mcpContent);
 
       if (result.isError) {
-        let errorText = content.filter(c => c.type === "text").map(c => (c as { text: string }).text).join("\n") || "Tool execution failed";
-        if (spec.inputSchema) {
-          errorText += `\n\nExpected parameters:\n${formatSchema(spec.inputSchema)}`;
-        }
-        return {
-          content: [{ type: "text" as const, text: `Error: ${errorText}` }],
-          details: { error: "tool_error", server: spec.serverName },
-        };
+        const errorText = content.filter(c => c.type === "text").map(c => (c as { text: string }).text).join("\n") || "Tool execution failed";
+        throw new McpToolCallError(errorText);
       }
 
       const resultText = content.filter(c => c.type === "text").map(c => (c as { text: string }).text).join("\n") || "(empty result)";
@@ -420,16 +415,14 @@ export function createDirectToolExecutor(
           details: { error: "url_elicitation_required", server: spec.serverName, action },
         };
       }
+      if (error instanceof McpToolCallError) throw error;
       const message = error instanceof Error ? error.message : String(error);
       uiSession?.sendToolCancelled(message);
       let errorText = `Failed to call tool: ${message}`;
       if (spec.inputSchema) {
         errorText += `\n\nExpected parameters:\n${formatSchema(spec.inputSchema)}`;
       }
-      return {
-        content: [{ type: "text" as const, text: errorText }],
-        details: { error: "call_failed", server: spec.serverName },
-      };
+      throw new Error(errorText);
     } finally {
       if (uiSession?.reused) {
         uiSession.close();
