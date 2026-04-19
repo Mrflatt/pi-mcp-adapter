@@ -16,22 +16,18 @@ const mocks = vi.hoisted(() => ({
   transportClose: vi.fn(),
 }));
 
-class MockUnauthorizedError extends Error {}
+const MockUnauthorizedError = vi.hoisted(() => class MockUnauthorizedError extends Error {});
 
-class MockStreamableHTTPClientTransport {
+const MockStreamableHTTPClientTransport = vi.hoisted(() => class MockStreamableHTTPClientTransport {
   constructor(_url: URL, _options: unknown) {}
-
   close = mocks.transportClose;
   finishAuth = mocks.finishAuth;
-}
+});
 
-vi.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
+vi.mock("@modelcontextprotocol/client", () => ({
+  StreamableHTTPClientTransport: MockStreamableHTTPClientTransport,
   auth: mocks.sdkAuth,
   UnauthorizedError: MockUnauthorizedError,
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
-  StreamableHTTPClientTransport: MockStreamableHTTPClientTransport,
 }));
 
 vi.mock("../mcp-callback-server.ts", () => ({

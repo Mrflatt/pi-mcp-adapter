@@ -22,8 +22,8 @@ import {
   type McpOAuthConfig,
 } from "./mcp-oauth-provider.ts"
 import { getAuthForUrl, saveAuthEntry, updateOAuthState } from "./mcp-auth.ts"
-import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
-import type { OAuthClientInformationFull, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js"
+import { UnauthorizedError } from "@modelcontextprotocol/client"
+import type { OAuthClientInformationFull, OAuthTokens } from "@modelcontextprotocol/client"
 
 describe("McpOAuthProvider", () => {
   const serverName = "test-server"
@@ -230,6 +230,7 @@ describe("McpOAuthProvider", () => {
         redirect_uris: ["http://localhost:3118/callback"],
         client_id_issued_at: Math.floor(Date.now() / 1000),
         client_secret_expires_at: futureTime,
+        redirect_uris: ["http://127.0.0.1:19876/mcp/oauth/callback"],
       }
 
       await provider.saveClientInformation(info)

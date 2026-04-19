@@ -193,12 +193,12 @@ describe("UI Streaming", () => {
 
   describe("McpServerManager stream listeners", () => {
     function attachNotificationHandler(manager: McpServerManager, serverName = "test-server") {
-      const client = { setNotificationHandler: vi.fn() };
+      const client = { fallbackNotificationHandler: undefined as ((notification: any) => Promise<void>) | undefined };
       (manager as unknown as {
-        attachAdapterNotificationHandlers: (serverName: string, client: { setNotificationHandler: typeof client.setNotificationHandler }) => void;
+        attachAdapterNotificationHandlers: (serverName: string, client: { fallbackNotificationHandler?: (notification: any) => Promise<void> }) => void;
       }).attachAdapterNotificationHandlers(serverName, client);
-      expect(client.setNotificationHandler).toHaveBeenCalledOnce();
-      return client.setNotificationHandler.mock.calls[0][1] as (notification: {
+      expect(client.fallbackNotificationHandler).toBeDefined();
+      return client.fallbackNotificationHandler! as (notification: {
         method: string;
         params: {
           streamToken: string;

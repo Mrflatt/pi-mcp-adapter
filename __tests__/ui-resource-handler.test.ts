@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { UiResourceHandler } from "../ui-resource-handler.ts";
-import { UrlElicitationRequiredError } from "@modelcontextprotocol/sdk/types.js";
+import { UrlElicitationRequiredError } from "@modelcontextprotocol/client";
 import type { McpServerManager } from "../server-manager.ts";
 
 // Mock the manager

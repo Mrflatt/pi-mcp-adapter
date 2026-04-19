@@ -2,7 +2,7 @@
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
-import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { OAuthTokens } from "@modelcontextprotocol/client";
 import { getAuthEntryFilePath } from "./mcp-auth.ts";
 
 // Google auth tokens expire in 60 min; 55-min TTL gives a 5-min safety margin

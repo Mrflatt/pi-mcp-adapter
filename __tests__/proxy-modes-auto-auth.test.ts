@@ -146,7 +146,7 @@ describe("proxy auto auth", () => {
   });
 
   it("runs URL elicitations returned by proxy tool calls", async () => {
-    const { UrlElicitationRequiredError } = await import("@modelcontextprotocol/sdk/types.js");
+    const { UrlElicitationRequiredError } = await import("@modelcontextprotocol/client");
     const { executeCall } = await import("../proxy-modes.ts");
     const error = new UrlElicitationRequiredError([{
       mode: "url",

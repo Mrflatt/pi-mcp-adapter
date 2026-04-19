@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("open", () => ({ default: mocks.open }));
 
-vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
+vi.mock("@modelcontextprotocol/client", () => ({
   Client: vi.fn().mockImplementation(function (this: any, info: unknown, options: unknown) {
     this.info = info;
     this.options = options;
@@ -19,25 +19,25 @@ vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
     this.connect = vi.fn(async () => undefined);
     this.listTools = vi.fn(async () => ({ tools: [] }));
     this.listResources = vi.fn(async () => ({ resources: [] }));
+    this.getServerCapabilities = vi.fn(() => ({}));
     this.close = vi.fn(async () => undefined);
+    this.fallbackNotificationHandler = null;
     mocks.clients.push(this);
   }),
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
   StdioClientTransport: vi.fn().mockImplementation(function (this: any, options: unknown) {
     this.options = options;
     this.close = vi.fn(async () => undefined);
     mocks.transports.push(this);
   }),
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
   StreamableHTTPClientTransport: vi.fn(),
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/sse.js", () => ({
   SSEClientTransport: vi.fn(),
+  UnauthorizedError: class UnauthorizedError extends Error {},
+  UrlElicitationRequiredError: class UrlElicitationRequiredError extends Error {
+    elicitations: any[];
+    constructor(elicitations: any[]) { super("URL elicitation required"); this.elicitations = elicitations; }
+  },
+  ElicitationCompleteNotificationSchema: { method: "notifications/elicitation/complete" },
+  AjvJsonSchemaValidator: vi.fn().mockImplementation(() => ({})),
 }));
 
 vi.mock("../npx-resolver.ts", () => ({
@@ -74,7 +74,7 @@ describe("McpServerManager sampling", () => {
     await manager.connect("demo", { command: "node", args: ["server.js"] });
 
     const client = mocks.clients[0];
-    expect(client.options).toEqual({ capabilities: { sampling: {} } });
+    expect(client.options).toMatchObject({ capabilities: { sampling: {} } });
     expect(client.setRequestHandler).toHaveBeenCalledTimes(1);
     expect(client.setRequestHandler.mock.invocationCallOrder[0]).toBeLessThan(
       client.connect.mock.invocationCallOrder[0],
@@ -92,7 +92,7 @@ describe("McpServerManager sampling", () => {
     await manager.connect("demo", { command: "node", args: ["server.js"] });
 
     const client = mocks.clients[0];
-    expect(client.options).toEqual({
+    expect(client.options).toMatchObject({
       capabilities: {
         elicitation: {
           form: {},
@@ -113,7 +113,7 @@ describe("McpServerManager sampling", () => {
 
     await manager.connect("demo", { command: "node", args: ["server.js"] });
 
-    expect(mocks.clients[0].options).toEqual({
+    expect(mocks.clients[0].options).toMatchObject({
       capabilities: { elicitation: { form: {} } },
     });
   });
@@ -154,7 +154,7 @@ describe("McpServerManager sampling", () => {
   });
 
   it("handles every URL in a URL-required error", async () => {
-    const { UrlElicitationRequiredError } = await import("@modelcontextprotocol/sdk/types.js");
+    const { UrlElicitationRequiredError } = await import("@modelcontextprotocol/client");
     const { McpServerManager } = await import("../server-manager.ts");
     const ui = {
       select: vi.fn().mockResolvedValue("Open"),
@@ -189,7 +189,7 @@ describe("McpServerManager sampling", () => {
 
     await manager.connect("demo", { command: "node", args: ["server.js"] });
 
-    expect(mocks.clients[0].options).toEqual({
+    expect(mocks.clients[0].options).toMatchObject({
       capabilities: {
         sampling: {},
         elicitation: {
@@ -208,7 +208,7 @@ describe("McpServerManager sampling", () => {
     await manager.connect("demo", { command: "node", args: ["server.js"] });
 
     const client = mocks.clients[0];
-    expect(client.options).toBeUndefined();
+    expect(client.options).not.toHaveProperty("capabilities");
     expect(client.setRequestHandler).not.toHaveBeenCalled();
   });
 

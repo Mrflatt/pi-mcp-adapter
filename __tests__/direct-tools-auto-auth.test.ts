@@ -133,7 +133,7 @@ describe("direct tools auto auth", () => {
   });
 
   it("runs URL elicitations returned by a URL-required tool error", async () => {
-    const { UrlElicitationRequiredError } = await import("@modelcontextprotocol/sdk/types.js");
+    const { UrlElicitationRequiredError } = await import("@modelcontextprotocol/client");
     const { createDirectToolExecutor } = await import("../direct-tools.ts");
     const error = new UrlElicitationRequiredError([{
       mode: "url",

@@ -7,8 +7,8 @@
 import {
   auth as runSdkAuth,
   UnauthorizedError,
-} from "@modelcontextprotocol/sdk/client/auth.js"
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
+  StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/client"
 import open from "open"
 import { McpOAuthProvider, type McpOAuthConfig } from "./mcp-oauth-provider.ts"
 import {

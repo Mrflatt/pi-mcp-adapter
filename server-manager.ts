@@ -1,16 +1,18 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import {
-  ElicitationCompleteNotificationSchema,
-  type ReadResourceResult,
-  type UrlElicitationRequiredError,
-} from "@modelcontextprotocol/sdk/types.js";
-import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv-provider.js";
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
+  Client,
+  StdioClientTransport,
+  StreamableHTTPClientTransport,
+  SSEClientTransport,
+  UnauthorizedError,
+  AjvJsonSchemaValidator,
+} from "@modelcontextprotocol/client";
+import type { AuthProvider, ReadResourceResult, UrlElicitationRequiredError } from "@modelcontextprotocol/client";
+import { ElicitationCompleteNotificationSchema } from "@modelcontextprotocol/client";
+import _Ajv from "ajv";
+import _addFormats from "ajv-formats";
+// CJS default-export compat for module: NodeNext
+const Ajv = (_Ajv as any).default ?? _Ajv;
+const addFormats = (_addFormats as any).default ?? _addFormats;
 import type {
   McpTool,
   McpResource,
@@ -18,7 +20,7 @@ import type {
   ServerStreamResultPatchNotification,
   Transport,
 } from "./types.ts";
-import { serverStreamResultPatchNotificationSchema } from "./types.ts";
+import { serverStreamResultPatchNotificationSchema, SERVER_STREAM_RESULT_PATCH_METHOD } from "./types.ts";
 import { resolveNpxBinary } from "./npx-resolver.ts";
 import { logger } from "./logger.ts";
 import { McpOAuthProvider } from "./mcp-oauth-provider.ts";
@@ -44,15 +46,17 @@ interface ServerConnection {
   status: "connected" | "closed" | "needs-auth";
 }
 
-// Pre-configured AJV validator — same config as SDK default + Google-proprietary formats
-const _googleAjv = new Ajv({
+// Pre-configured AJV validator — adds formats not in ajv-formats that MCP servers use
+const _ajv = new Ajv({
   strict: false,
   validateFormats: true,
   validateSchema: false,
   allErrors: true,
 });
-addFormats(_googleAjv);
-const GOOGLE_FORMATS = [
+addFormats(_ajv);
+const EXTRA_FORMATS = [
+  "uint32",
+  "uint64",
   "google-duration",
   "google-datetime",
   "google-fieldmask",
@@ -60,8 +64,8 @@ const GOOGLE_FORMATS = [
   "google-uint32",
   "google-uint64",
 ];
-for (const fmt of GOOGLE_FORMATS) _googleAjv.addFormat(fmt, { validate: () => true });
-const googleSchemaValidator = new AjvJsonSchemaValidator(_googleAjv);
+for (const fmt of EXTRA_FORMATS) _ajv.addFormat(fmt, { validate: () => true });
+const schemaValidator = new AjvJsonSchemaValidator(_ajv);
 
 type UiStreamListener = (serverName: string, notification: ServerStreamResultPatchNotification["params"]) => void;
 
@@ -213,7 +217,7 @@ export class McpServerManager {
 
   private createClient(serverName: string): Client {
     const capabilities = this.buildClientCapabilities();
-    const options: Record<string, unknown> = { jsonSchemaValidator: googleSchemaValidator };
+    const options: Record<string, unknown> = { jsonSchemaValidator: schemaValidator };
     if (Object.keys(capabilities).length > 0) options.capabilities = capabilities;
     const client = new Client(
       { name: `pi-mcp-${serverName}`, version: "1.0.0" },
@@ -284,21 +288,18 @@ export class McpServerManager {
       }
     }
 
-    // For Google auth, fetch (or reuse cached) token and add to headers
+    // For Google auth, create an AuthProvider that dynamically provides a fresh
+    // token on every request.  Tokens are cached for 55 min (see oauth-handler)
+    // and transparently refreshed when the cache expires.
+    let googleAuthProvider: AuthProvider | undefined;
     if (definition.auth === "google-access-token") {
-      const cached = getStoredTokens(serverName);
-      const token = cached?.access_token ?? await fetchGoogleAccessToken();
-      if (!cached) writeStoredToken(serverName, token);
-      headers["Authorization"] = `Bearer ${token}`;
+      googleAuthProvider = createGoogleAuthProvider(serverName, () => fetchGoogleAccessToken());
     }
     if (definition.auth === "google-identity-token") {
       const { audience, serviceAccount } = definition.googleAuth ?? {} as any;
       if (!audience) throw new Error(`google-identity-token requires googleAuth.audience for server "${serverName}"`);
       if (!serviceAccount) throw new Error(`google-identity-token requires googleAuth.serviceAccount for server "${serverName}"`);
-      const cached = getStoredTokens(serverName);
-      const token = cached?.access_token ?? await fetchGoogleIdentityToken(serviceAccount, audience);
-      if (!cached) writeStoredToken(serverName, token);
-      headers["Authorization"] = `Bearer ${token}`;
+      googleAuthProvider = createGoogleAuthProvider(serverName, () => fetchGoogleIdentityToken(serviceAccount, audience));
     }
 
 
@@ -306,10 +307,10 @@ export class McpServerManager {
     const requestInit = Object.keys(headers).length > 0 ? { headers } : undefined;
 
     // For OAuth servers, create an auth provider
-    let authProvider: McpOAuthProvider | undefined;
+    let oauthProvider: McpOAuthProvider | undefined;
     if (supportsOAuth(definition)) {
       const oauthConfig = extractOAuthConfig(definition);
-      authProvider = new McpOAuthProvider(
+      oauthProvider = new McpOAuthProvider(
         serverName,
         definition.url!,
         oauthConfig,
@@ -320,23 +321,23 @@ export class McpServerManager {
         }
       );
     }
+    
+    const authProvider: AuthProvider | McpOAuthProvider | undefined = googleAuthProvider ?? oauthProvider;
+    const transportOpts = { requestInit, authProvider };
 
     // Try StreamableHTTP first (modern MCP servers)
-    const streamableTransport = new StreamableHTTPClientTransport(url, {
-      requestInit,
-      authProvider,
-    });
-
+    const streamableTransport = new StreamableHTTPClientTransport(url, transportOpts);
+    
     try {
       // Create a test client to verify the transport works
-      const testClient = new Client({ name: "pi-mcp-probe", version: "2.1.2" }, { jsonSchemaValidator: googleSchemaValidator });
+      const testClient = new Client({ name: "pi-mcp-probe", version: "2.1.2" }, { jsonSchemaValidator: schemaValidator });
       await testClient.connect(streamableTransport);
       await testClient.close().catch(() => {});
       // Close probe transport before creating fresh one
       await streamableTransport.close().catch(() => {});
 
       // StreamableHTTP works - create fresh transport for actual use
-      return new StreamableHTTPClientTransport(url, { requestInit, authProvider });
+      return new StreamableHTTPClientTransport(url, transportOpts);
     } catch (error) {
       // StreamableHTTP failed, close and try SSE fallback
       await streamableTransport.close().catch(() => {});
@@ -365,6 +366,7 @@ export class McpServerManager {
   }
 
   private async fetchAllResources(client: Client): Promise<McpResource[]> {
+    if (!client.getServerCapabilities()?.resources) return [];
     try {
       const allResources: McpResource[] = [];
       let cursor: string | undefined;
@@ -383,11 +385,13 @@ export class McpServerManager {
   }
 
   private attachAdapterNotificationHandlers(serverName: string, client: Client): void {
-    client.setNotificationHandler(serverStreamResultPatchNotificationSchema, (notification) => {
-      const listener = this.uiStreamListeners.get(notification.params.streamToken);
+    client.fallbackNotificationHandler = async (notification) => {
+      if (notification.method !== SERVER_STREAM_RESULT_PATCH_METHOD) return;
+      const params = (notification as ServerStreamResultPatchNotification).params;
+      const listener = this.uiStreamListeners.get(params.streamToken);
       if (!listener) return;
-      listener(serverName, notification.params);
-    });
+      listener(serverName, params);
+    };
   }
 
   registerUiStreamListener(streamToken: string, listener: UiStreamListener): void {
@@ -468,6 +472,30 @@ export class McpServerManager {
     if (connection.inFlight > 0) return false;
     return (Date.now() - connection.lastUsedAt) > timeoutMs;
   }
+}
+
+/**
+ * Create an AuthProvider that dynamically provides a fresh Google auth token.
+ * Tokens are cached for 55 min and refreshed transparently.
+ */
+function createGoogleAuthProvider(
+  serverName: string,
+  refreshToken: () => Promise<string>,
+): AuthProvider {
+  return {
+    async token() {
+      const cached = getStoredTokens(serverName);
+      if (cached?.access_token) return cached.access_token;
+      const token = await refreshToken();
+      writeStoredToken(serverName, token);
+      return token;
+    },
+    async onUnauthorized() {
+      clearStoredTokens(serverName);
+      const token = await refreshToken();
+      writeStoredToken(serverName, token);
+    },
+  };
 }
 
 /**

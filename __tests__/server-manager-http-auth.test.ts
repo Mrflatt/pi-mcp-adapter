@@ -26,7 +26,7 @@ const mocks = vi.hoisted(() => ({
   httpTransports: [] as HttpTransportMock[],
 }));
 
-vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
+vi.mock("@modelcontextprotocol/client", () => ({
   Client: vi.fn().mockImplementation((info: unknown, options: unknown) => ({
     info,
     options,
@@ -35,24 +35,19 @@ vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
     connect: vi.fn(async () => undefined),
     listTools: vi.fn(async () => ({ tools: [] })),
     listResources: vi.fn(async () => ({ resources: [] })),
+    getServerCapabilities: vi.fn(() => ({})),
     close: vi.fn(async () => undefined),
+    fallbackNotificationHandler: null,
   })),
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
   StdioClientTransport: vi.fn(),
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
   StreamableHTTPClientTransport: vi.fn().mockImplementation((url: URL, options: TransportOptions) => {
     const transport = { url, options, close: vi.fn(async () => undefined) };
     mocks.httpTransports.push(transport);
     return transport;
   }),
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/sse.js", () => ({
   SSEClientTransport: vi.fn(),
+  UnauthorizedError: class UnauthorizedError extends Error {},
+  AjvJsonSchemaValidator: vi.fn().mockImplementation(() => ({})),
 }));
 
 vi.mock("../npx-resolver.ts", () => ({

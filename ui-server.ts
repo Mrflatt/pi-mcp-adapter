@@ -6,7 +6,7 @@ import { buildAllowAttribute } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type {
   CallToolRequest,
   CallToolResult,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
 import type { ConsentManager } from "./consent-manager.ts";
 import { ServerError, wrapError } from "./errors.ts";
 import { buildHostHtmlTemplate, buildCspMetaContent, applyCspMeta } from "./host-html-template.ts";

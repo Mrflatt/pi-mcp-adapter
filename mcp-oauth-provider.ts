@@ -5,14 +5,15 @@
  * Handles OAuth client registration, token storage, and authorization redirection.
  */
 
-import type { AddClientAuthentication, OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js"
-import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
+import type { AddClientAuthentication } from "@modelcontextprotocol/client"
+import { UnauthorizedError } from "@modelcontextprotocol/client"
 import type {
+  OAuthClientProvider,
   OAuthClientMetadata,
   OAuthTokens,
   OAuthClientInformation,
   OAuthClientInformationFull,
-} from "@modelcontextprotocol/sdk/shared/auth.js"
+} from "@modelcontextprotocol/client"
 import {
   getAuthForUrl,
   updateTokens,
