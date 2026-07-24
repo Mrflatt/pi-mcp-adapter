@@ -146,6 +146,20 @@ function blockToLines(block: McpToolContentBlock): string[] {
   return [`[image: ${block.mimeType}]`];
 }
 
+export function formatMcpToolResultIdentity(details: McpToolResultDetails | undefined): string | null {
+  if (details?.mode !== "call") return null;
+  const server = typeof details.server === "string"
+    ? details.server
+    : typeof details.hintServer === "string"
+      ? details.hintServer
+      : null;
+  if (!server) return null;
+  if (typeof details.tool === "string") return `MCP ${server}/${details.tool}`;
+  if (typeof details.resourceUri === "string") return `MCP ${server} resource ${details.resourceUri}`;
+  if (typeof details.requestedTool === "string") return `MCP ${server}/${details.requestedTool}`;
+  return null;
+}
+
 export function formatMcpToolResultLines(
   result: Pick<AgentToolResult<McpToolResultDetails>, "content">,
   expanded: boolean,
@@ -178,12 +192,16 @@ export function renderMcpToolResult(
   const hasErrorDetails = Boolean(result.details.error);
   const expanded = options.expanded || context?.isError === true || hasErrorDetails;
   const display = formatMcpToolResultLines(result, true);
-  const output = display.lines.map((line) => activeTheme.fg("toolOutput", line)).join("\n");
+  const identity = formatMcpToolResultIdentity(result.details);
+  const output = [
+    ...(identity ? [activeTheme.fg("muted", identity)] : []),
+    ...display.lines.map((line) => activeTheme.fg("toolOutput", line)),
+  ].join("\n");
 
   return new CollapsibleText(
     output,
     expanded,
-    DEFAULT_MAX_COLLAPSED_LINES,
+    DEFAULT_MAX_COLLAPSED_LINES + (identity ? 1 : 0),
     activeTheme.fg("muted", "…"),
     activeTheme.fg("muted", "(Ctrl+O to expand)"),
   );

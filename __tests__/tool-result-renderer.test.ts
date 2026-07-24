@@ -4,6 +4,7 @@ import {
   createMcpDirectToolCallRenderer,
   formatMcpDirectToolCallLines,
   formatMcpProxyToolCallLines,
+  formatMcpToolResultIdentity,
   formatMcpToolResultLines,
   renderMcpProxyToolCall,
   renderMcpToolResult,
@@ -133,6 +134,14 @@ describe("MCP tool result renderer", () => {
     expect(display.truncated).toBe(false);
   });
 
+  it("formats proxy call result identity from details", () => {
+    expect(formatMcpToolResultIdentity({ mode: "call", server: "figma", tool: "get_nodes" })).toBe("MCP figma/get_nodes");
+    expect(formatMcpToolResultIdentity({ mode: "call", server: "files", resourceUri: "file://demo" })).toBe("MCP files resource file://demo");
+    expect(formatMcpToolResultIdentity({ mode: "call", server: "figma", requestedTool: "figma_get_nodes" })).toBe("MCP figma/figma_get_nodes");
+    expect(formatMcpToolResultIdentity({ mode: "call", hintServer: "figma", requestedTool: "figma_get_nodes" })).toBe("MCP figma/figma_get_nodes");
+    expect(formatMcpToolResultIdentity({ mode: "list", server: "figma", tool: "get_nodes" })).toBeNull();
+  });
+
   it("collapses a single line that wraps beyond the compact viewport height", () => {
     const output = renderMcpToolResult(
       result([{
@@ -148,6 +157,22 @@ describe("MCP tool result renderer", () => {
     expect(output).toContain("…");
     expect(output).toContain("Ctrl+O to expand");
     expect(output).not.toContain("segment-8");
+  });
+
+  it("shows proxy call result identity without hiding the third content line", () => {
+    const output = renderMcpToolResult(
+      result([{ type: "text", text: "one\ntwo\nthree\nfour" }], { mode: "call", server: "figma", tool: "get_nodes" }),
+      collapsedOptions,
+      plainTheme,
+      { isError: false },
+    ).render(80).join("\n");
+
+    expect(output).toContain("MCP figma/get_nodes");
+    expect(output).toContain("one");
+    expect(output).toContain("two");
+    expect(output).toContain("three");
+    expect(output).not.toContain("four");
+    expect(output).toContain("Ctrl+O to expand");
   });
 
   it("shows the full wrapped single line when expanded", () => {

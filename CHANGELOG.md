@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Accepted JSONC-style comments and trailing commas in MCP JSON config files. Thanks @GoCoder7 for issue #124.
 
 ### Fixed
+- Show the actual proxied MCP server/tool name in `mcp` tool results. Thanks Finn (@finnvyrn) and @dillontkh for issue #68.
 - Removed the remaining TypeScript import cycles reported by `madge`. Thanks @av1155 for issue #101.
 
 ## [2.12.1] - 2026-07-24

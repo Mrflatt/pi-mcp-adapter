@@ -735,33 +735,49 @@ export async function executeCall(
   let toolMeta: ToolMetadata | undefined;
   let autoAuthAttempted = false;
   const prefixMode = state.config.settings?.toolPrefix ?? "server";
+  const disabledCallResult = (disabledServer: string, metadata?: ToolMetadata): ProxyToolResult => {
+    if (!metadata) {
+      const message = `Server "${disabledServer}" is disabled. Run /mcp enable ${disabledServer} and /reload to enable it.`;
+      return {
+        content: [{ type: "text" as const, text: message }],
+        details: { mode: "call", error: "server_disabled", server: disabledServer, requestedTool: toolName, message },
+      };
+    }
+    const message = `Server "${disabledServer}" is disabled. Run /mcp enable ${disabledServer} and /reload to enable it.`;
+    const identity = metadata.resourceUri
+      ? { server: disabledServer, resourceUri: metadata.resourceUri }
+      : { server: disabledServer, tool: metadata.originalName };
+    return {
+      content: [{ type: "text" as const, text: message }],
+      details: { mode: "call", error: "server_disabled", ...identity, message },
+    };
+  };
 
   if (serverName && !state.config.mcpServers[serverName]) {
     return {
       content: [{ type: "text" as const, text: `Server "${serverName}" not found. Use mcp({}) to see available servers.` }],
-      details: { mode: "call", error: "server_not_found", server: serverName },
+      details: { mode: "call", error: "server_not_found", server: serverName, requestedTool: toolName },
     };
   }
-  if (serverName && isServerDisabled(state.config.mcpServers[serverName])) {
-    return disabledResult("call", serverName);
-  }
-
   if (serverName) {
     toolMeta = findToolByName(state.toolMetadata.get(serverName), toolName);
+    if (isServerDisabled(state.config.mcpServers[serverName])) {
+      return disabledCallResult(serverName, toolMeta);
+    }
   } else {
-    let disabledMatch: string | undefined;
+    let disabledMatch: { serverName: string; toolMeta: ToolMetadata } | undefined;
     for (const [server, metadata] of state.toolMetadata.entries()) {
       const found = findToolByName(metadata, toolName);
       if (!found) continue;
       if (isServerDisabled(state.config.mcpServers[server])) {
-        disabledMatch ??= server;
+        disabledMatch ??= { serverName: server, toolMeta: found };
         continue;
       }
       serverName = server;
       toolMeta = found;
       break;
     }
-    if (!toolMeta && disabledMatch) return disabledResult("call", disabledMatch);
+    if (!toolMeta && disabledMatch) return disabledCallResult(disabledMatch.serverName, disabledMatch.toolMeta);
   }
 
   if (serverName && !toolMeta) {
@@ -777,7 +793,7 @@ export async function executeCall(
           if (autoAuth.status === "failed") {
             return {
               content: [{ type: "text" as const, text: autoAuth.message }],
-              details: { mode: "call", error: "auth_required", server: serverName, message: autoAuth.message },
+              details: { mode: "call", error: "auth_required", server: serverName, requestedTool: toolName, message: autoAuth.message },
             };
           }
           if (autoAuth.status === "success") {
@@ -789,7 +805,7 @@ export async function executeCall(
               if (!toolMeta) {
                 return {
                   content: [{ type: "text" as const, text: `Tool "${toolName}" not found on "${serverName}" after reconnect.` }],
-                  details: { mode: "call", error: "tool_not_found_after_reconnect", requestedTool: toolName },
+                  details: { mode: "call", error: "tool_not_found_after_reconnect", server: serverName, requestedTool: toolName },
                 };
               }
             }
@@ -800,7 +816,7 @@ export async function executeCall(
           const message = getAuthRequiredMessage(state, serverName);
           return {
             content: [{ type: "text" as const, text: message }],
-            details: { mode: "call", error: "auth_required", server: serverName, message },
+            details: { mode: "call", error: "auth_required", server: serverName, requestedTool: toolName, message },
           };
         }
       }
@@ -810,7 +826,7 @@ export async function executeCall(
         if (failedAgo !== null) {
           return {
             content: [{ type: "text" as const, text: `Server "${serverName}" not available (last failed ${failedAgo}s ago)` }],
-            details: { mode: "call", error: "server_backoff", server: serverName },
+            details: { mode: "call", error: "server_backoff", server: serverName, requestedTool: toolName },
           };
         }
       }
@@ -838,7 +854,7 @@ export async function executeCall(
         if (autoAuth.status === "failed") {
           return {
             content: [{ type: "text" as const, text: autoAuth.message }],
-            details: { mode: "call", error: "auth_required", server: configuredServer, message: autoAuth.message },
+            details: { mode: "call", error: "auth_required", server: configuredServer, requestedTool: toolName, message: autoAuth.message },
           };
         }
         if (autoAuth.status === "success") {
@@ -883,6 +899,10 @@ export async function executeCall(
     };
   }
 
+  const callIdentity = toolMeta.resourceUri
+    ? { server: serverName, resourceUri: toolMeta.resourceUri }
+    : { server: serverName, tool: toolMeta.originalName };
+
   let connection = state.manager.getConnection(serverName);
   if (connection?.status === "needs-auth") {
     if (!autoAuthAttempted) {
@@ -891,7 +911,7 @@ export async function executeCall(
       if (autoAuth.status === "failed") {
         return {
           content: [{ type: "text" as const, text: autoAuth.message }],
-          details: { mode: "call", error: "auth_required", server: serverName, message: autoAuth.message },
+          details: { mode: "call", error: "auth_required", ...callIdentity, message: autoAuth.message },
         };
       }
       if (autoAuth.status === "success") {
@@ -905,7 +925,7 @@ export async function executeCall(
       const message = getAuthRequiredMessage(state, serverName);
       return {
         content: [{ type: "text" as const, text: message }],
-        details: { mode: "call", error: "auth_required", server: serverName, message },
+        details: { mode: "call", error: "auth_required", ...callIdentity, message },
       };
     }
   }
@@ -914,7 +934,7 @@ export async function executeCall(
     if (failedAgo !== null) {
       return {
         content: [{ type: "text" as const, text: `Server "${serverName}" not available (last failed ${failedAgo}s ago)` }],
-        details: { mode: "call", error: "server_backoff", server: serverName },
+        details: { mode: "call", error: "server_backoff", ...callIdentity },
       };
     }
 
@@ -922,7 +942,7 @@ export async function executeCall(
     if (!definition) {
       return {
         content: [{ type: "text" as const, text: `Server "${serverName}" not connected` }],
-        details: { mode: "call", error: "server_not_connected", server: serverName },
+        details: { mode: "call", error: "server_not_connected", ...callIdentity },
       };
     }
 
@@ -938,7 +958,7 @@ export async function executeCall(
           if (autoAuth.status === "failed") {
             return {
               content: [{ type: "text" as const, text: autoAuth.message }],
-              details: { mode: "call", error: "auth_required", server: serverName, message: autoAuth.message },
+              details: { mode: "call", error: "auth_required", ...callIdentity, message: autoAuth.message },
             };
           }
           if (autoAuth.status === "success") {
@@ -951,7 +971,7 @@ export async function executeCall(
           const message = getAuthRequiredMessage(state, serverName);
           return {
             content: [{ type: "text" as const, text: message }],
-            details: { mode: "call", error: "auth_required", server: serverName, message },
+            details: { mode: "call", error: "auth_required", ...callIdentity, message },
           };
         }
       }
@@ -969,7 +989,7 @@ export async function executeCall(
           : `Server "${serverName}" has no tools.`;
         return {
           content: [{ type: "text" as const, text: `Tool "${toolName}" not found on "${serverName}" after reconnect. ${hint}` }],
-          details: { mode: "call", error: "tool_not_found_after_reconnect", requestedTool: toolName },
+          details: { mode: "call", error: "tool_not_found_after_reconnect", server: serverName, requestedTool: toolName },
         };
       }
     } catch (error) {
@@ -979,13 +999,13 @@ export async function executeCall(
       updateStatusBar(state);
       return {
         content: [{ type: "text" as const, text: `Failed to connect to "${serverName}": ${message}` }],
-        details: { mode: "call", error: isAbortError(error, ownedSignal) ? "aborted" : "connect_failed", message },
+        details: { mode: "call", error: isAbortError(error, ownedSignal) ? "aborted" : "connect_failed", ...callIdentity, message },
       };
     }
   }
 
   if (isServerDisabled(state.config.mcpServers[serverName])) {
-    return disabledResult("call", serverName);
+    return disabledCallResult(serverName, toolMeta);
   }
 
   let uiSession: UiSessionRuntime | null = null;
@@ -1035,7 +1055,7 @@ export async function executeCall(
       const guarded = await guardMcpOutput(content.length > 0 ? content : [{ type: "text" as const, text: "(empty resource)" }], outputGuardOptions);
       return {
         content: guarded.content,
-        details: { mode: "call", resourceUri: toolMeta.resourceUri, server: serverName, ...guardedMcpDetails(guarded) },
+        details: { mode: "call", ...callIdentity, ...guardedMcpDetails(guarded) },
       };
     }
 
@@ -1072,7 +1092,7 @@ export async function executeCall(
         const guarded = await guardMcpOutput(outputContent, { ...outputGuardOptions, prefix: "Error: ", suffix: schemaText, emptyTextFallback: "Tool execution failed", rawMcpResult: result });
         return {
           content: guarded.content,
-          details: { mode: "call", error: "tool_error", ...guardedMcpDetails(guarded) },
+          details: { mode: "call", error: "tool_error", ...callIdentity, ...guardedMcpDetails(guarded) },
         };
       }
 
@@ -1085,8 +1105,7 @@ export async function executeCall(
         details: {
           mode: "call",
           ...guardedMcpDetails(guarded),
-          server: serverName,
-          tool: toolMeta.originalName,
+          ...callIdentity,
           uiOpen: uiSummary.uiOpen,
           uiViewer: uiSummary.uiViewer,
           uiUrl: uiSummary.uiUrl,
@@ -1102,7 +1121,7 @@ export async function executeCall(
       const guarded = await guardMcpOutput(outputContent, { ...outputGuardOptions, prefix: "Error: ", suffix: schemaText, emptyTextFallback: "Tool execution failed", rawMcpResult: result });
       return {
         content: guarded.content,
-        details: { mode: "call", error: "tool_error", ...guardedMcpDetails(guarded) },
+        details: { mode: "call", error: "tool_error", ...callIdentity, ...guardedMcpDetails(guarded) },
       };
     }
 
@@ -1111,7 +1130,7 @@ export async function executeCall(
     const guarded = await guardMcpOutput(outputContent, { ...outputGuardOptions, rawMcpResult: result });
     return {
       content: guarded.content,
-      details: { mode: "call", ...guardedMcpDetails(guarded), server: serverName, tool: toolMeta.originalName },
+      details: { mode: "call", ...guardedMcpDetails(guarded), ...callIdentity },
     };
   } catch (error) {
     if (error instanceof SessionRecoveryAuthRequiredError) {
@@ -1119,7 +1138,7 @@ export async function executeCall(
       uiSession?.sendToolCancelled(message);
       return {
         content: [{ type: "text" as const, text: message }],
-        details: { mode: "call", error: "auth_required", server: serverName, message, autoAuthAttempted },
+        details: { mode: "call", error: "auth_required", ...callIdentity, message, autoAuthAttempted },
       };
     }
     if (error instanceof UrlElicitationRequiredError) {
@@ -1130,7 +1149,7 @@ export async function executeCall(
       uiSession?.sendToolCancelled(message);
       return {
         content: [{ type: "text" as const, text: message }],
-        details: { mode: "call", error: "url_elicitation_required", server: serverName, action },
+        details: { mode: "call", error: "url_elicitation_required", ...callIdentity, action },
       };
     }
     const message = error instanceof Error ? error.message : String(error);
@@ -1141,7 +1160,7 @@ export async function executeCall(
 
     return {
       content: guarded.content,
-      details: { mode: "call", error: isAbortError(error, ownedSignal) ? "aborted" : "call_failed", message: guarded.outputGuard ? "output truncated; see outputGuard.fullOutputPath" : message, ...guardedMcpDetails(guarded) },
+      details: { mode: "call", error: isAbortError(error, ownedSignal) ? "aborted" : "call_failed", ...callIdentity, message: guarded.outputGuard ? "output truncated; see outputGuard.fullOutputPath" : message, ...guardedMcpDetails(guarded) },
     };
   } finally {
     if (uiSession?.reused) {
