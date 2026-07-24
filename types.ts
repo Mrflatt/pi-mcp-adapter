@@ -312,6 +312,13 @@ export interface ServerEntry {
   excludeTools?: string[];
   // Debug
   debug?: boolean;  // Show server stderr (default: false)
+  // Keep configuration visible without allowing connections or execution.
+  disabled?: boolean;
+}
+
+/** Only the literal boolean `true` disables a server. */
+export function isServerDisabled(definition: ServerEntry | undefined): boolean {
+  return definition?.disabled === true;
 }
 
 // Output guard tuning (settings.outputGuard object form)
@@ -412,7 +419,7 @@ export interface McpPanelCallbacks {
   reconnect: (serverName: string) => Promise<boolean>;
   canAuthenticate: (serverName: string) => boolean;
   authenticate: (serverName: string) => Promise<McpAuthResult>;
-  getConnectionStatus: (serverName: string) => "connected" | "idle" | "failed" | "needs-auth";
+  getConnectionStatus: (serverName: string) => "connected" | "idle" | "failed" | "needs-auth" | "disabled";
   getFailureMessage?: (serverName: string) => string | null;
   refreshCacheAfterReconnect: (serverName: string) => import("./metadata-cache.ts").ServerCacheEntry | null;
 }

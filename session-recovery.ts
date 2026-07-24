@@ -24,7 +24,7 @@ import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamable
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { logger } from "./logger.ts";
 import { throwIfAborted } from "./abort.ts";
-import type { McpConfig } from "./types.ts";
+import { isServerDisabled, type McpConfig } from "./types.ts";
 import type { McpServerManager, ServerConnection } from "./server-manager.ts";
 
 /**
@@ -95,6 +95,9 @@ export async function withSessionRecovery<T>(
   serverName: string,
   fn: (conn: ServerConnection) => Promise<T>,
 ): Promise<T> {
+  if (isServerDisabled(deps.config.mcpServers[serverName])) {
+    throw new Error(`MCP server "${serverName}" is disabled`);
+  }
   const connection = deps.manager.getConnection(serverName);
   if (!connection) {
     throw new Error(`Server "${serverName}" is not connected`);

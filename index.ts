@@ -4,7 +4,7 @@ import type { McpAdapterOptions } from "./types.ts";
 import type { McpOAuthRuntime } from "./mcp-auth-flow.ts";
 import { Type } from "typebox";
 import { showStatus, showTools, reconnectServer, reconnectServers, authenticateServer, logoutServer, openMcpAuthPanel, openMcpPanel, openMcpSetup } from "./commands.ts";
-import { cloneMcpConfig, loadMcpConfig } from "./config.ts";
+import { cloneMcpConfig, loadMcpConfig, writeProjectServerDisabledOverride } from "./config.ts";
 import { buildProxyDescription, createDirectToolExecutor, getMissingConfiguredDirectToolServers, resolveDirectTools } from "./direct-tools.ts";
 import { flushMetadataCache, initializeMcp, updateStatusBar } from "./init.ts";
 import { loadMetadataCache } from "./metadata-cache.ts";
@@ -216,13 +216,15 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
           { value: "tools", label: "tools — List all tools" },
           { value: "setup", label: "setup — Configure MCP servers" },
           { value: "logout", label: "logout — Clear server credentials" },
+          { value: "disable", label: "disable — Disable a server" },
+          { value: "enable", label: "enable — Enable a server" },
           { value: "status", label: "status — Show server status" },
         ].filter(({ value }) => value.startsWith(normalized));
         return subcommands.length > 0 ? subcommands : null;
       }
 
       const [, subcommand, argumentPrefix] = argumentMatch;
-      if ((subcommand !== "reconnect" && subcommand !== "logout") || !state) return null;
+      if ((subcommand !== "reconnect" && subcommand !== "logout" && subcommand !== "disable" && subcommand !== "enable") || !state) return null;
 
       const servers = Object.keys(state.config.mcpServers)
         .filter((serverName) => serverName.startsWith(argumentPrefix.trimStart()))
@@ -293,6 +295,30 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
           }
           commandOwner?.throwIfInactive();
           await logoutServer(serverName, state, commandCtx);
+          break;
+        }
+        case "disable":
+        case "enable": {
+          const serverName = rest;
+          if (programmaticConfig) {
+            commandCtx.ui?.notify(`/mcp ${subcommand} is unavailable when config is supplied by createMcpAdapter().`, "info");
+            break;
+          }
+          if (!serverName) {
+            commandCtx.ui?.notify(`Usage: /mcp ${subcommand} <server>`, "error");
+            break;
+          }
+          if (!state.config.mcpServers[serverName]) {
+            commandCtx.ui?.notify(`Server "${serverName}" not found in effective config`, "error");
+            break;
+          }
+          commandOwner?.throwIfInactive();
+          const result = writeProjectServerDisabledOverride(earlyConfigPath, commandCtx.cwd, serverName, subcommand === "disable");
+          if (result.changed) {
+            commandCtx.ui?.notify(`${subcommand === "disable" ? "Disabled" : "Enabled"} server "${serverName}" in ${result.path} — run /reload to apply`, "info");
+          } else {
+            commandCtx.ui?.notify(`Server "${serverName}" is already ${subcommand === "disable" ? "disabled" : "enabled"}`, "info");
+          }
           break;
         }
         case "status":

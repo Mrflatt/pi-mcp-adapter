@@ -19,6 +19,16 @@ describe("updateStatusBar", () => {
     expect(setStatus).toHaveBeenCalledWith("mcp", "MCP: 0/1 servers");
   });
 
+  it("does not count a needs-auth connection as connected", () => {
+    const setStatus = vi.fn();
+    const state = createState({ setStatus, theme: undefined });
+    state.manager.getAllConnections.mockReturnValue(new Map([["demo", { status: "needs-auth" }]]));
+
+    updateStatusBar(state);
+
+    expect(setStatus).toHaveBeenCalledWith("mcp", "MCP: 0/1 servers");
+  });
+
   it("keeps themed status text when a theme is available", () => {
     const setStatus = vi.fn();
     const state = createState({

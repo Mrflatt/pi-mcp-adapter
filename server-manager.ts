@@ -9,14 +9,15 @@ import {
   type ReadResourceResult,
   type UrlElicitationRequiredError,
 } from "@modelcontextprotocol/sdk/types.js";
-import type {
-  McpTool,
-  McpResource,
-  ServerDefinition,
-  ServerStreamResultPatchNotification,
-  Transport,
+import {
+  isServerDisabled,
+  type McpTool,
+  type McpResource,
+  type ServerDefinition,
+  type ServerStreamResultPatchNotification,
+  type Transport,
+  serverStreamResultPatchNotificationSchema,
 } from "./types.ts";
-import { serverStreamResultPatchNotificationSchema } from "./types.ts";
 import { resolveNpxBinary } from "./npx-resolver.ts";
 import { logger } from "./logger.ts";
 import { McpOAuthProvider } from "./mcp-oauth-provider.ts";
@@ -151,6 +152,7 @@ export class McpServerManager {
   }
 
   async connect(name: string, definition: ServerDefinition, signal?: AbortSignal): Promise<ServerConnection> {
+    if (isServerDisabled(definition)) throw new Error(`MCP server "${name}" is disabled`);
     if (this.stopped) throw new Error("MCP server manager is closed");
     const ownedSignal = combineAbortSignals(this.runtimeSignal, signal);
     throwIfAborted(ownedSignal);
@@ -206,6 +208,7 @@ export class McpServerManager {
     staleConnection: ServerConnection,
     signal?: AbortSignal,
   ): Promise<ServerConnection> {
+    if (isServerDisabled(definition)) throw new Error(`MCP server "${name}" is disabled`);
     if (this.stopped) throw new Error("MCP server manager is closed");
     const ownedSignal = combineAbortSignals(this.runtimeSignal, signal);
     throwIfAborted(ownedSignal);
@@ -636,6 +639,9 @@ export class McpServerManager {
   }
 
   async readResource(name: string, uri: string, signal?: AbortSignal): Promise<ReadResourceResult> {
+    if (isServerDisabled(this.connections.get(name)?.definition)) {
+      throw new Error(`MCP server "${name}" is disabled`);
+    }
     const connection = this.connections.get(name);
     if (!connection || connection.status !== "connected") {
       throw new Error(`Server "${name}" is not connected`);

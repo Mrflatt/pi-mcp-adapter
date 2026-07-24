@@ -1,4 +1,4 @@
-import type { ServerDefinition } from "./types.ts";
+import { isServerDisabled, type ServerDefinition } from "./types.ts";
 import type { McpServerManager } from "./server-manager.ts";
 import { hasPendingAuth } from "./mcp-auth-flow.ts";
 import { logger } from "./logger.ts";
@@ -36,10 +36,12 @@ export class McpLifecycleManager {
   }
 
   markKeepAlive(name: string, definition: ServerDefinition): void {
+    if (isServerDisabled(definition)) return;
     this.keepAliveServers.set(name, definition);
   }
 
   registerServer(name: string, definition: ServerDefinition, settings?: { idleTimeout?: number }): void {
+    if (isServerDisabled(definition)) return;
     this.allServers.set(name, definition);
     if (settings?.idleTimeout !== undefined) this.serverSettings.set(name, settings);
   }
@@ -86,6 +88,7 @@ export class McpLifecycleManager {
   private async checkConnections(signal?: AbortSignal): Promise<void> {
     if (this.stopped || signal?.aborted) return;
     for (const [name, definition] of this.keepAliveServers) {
+      if (isServerDisabled(definition)) continue;
       const connection = this.manager.getConnection(name);
       if (!connection || connection.status !== "connected") {
         if (this.hasPendingAuthForServer(name)) {

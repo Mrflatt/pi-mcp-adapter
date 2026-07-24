@@ -20,6 +20,19 @@ vi.mock("../init.ts", () => ({
 }));
 
 describe("authenticateServer", () => {
+  it("does not open an empty auth panel for disabled-only OAuth config", async () => {
+    const ui = { notify: vi.fn(), custom: vi.fn() };
+    const { openMcpAuthPanel } = await import("../commands.ts");
+
+    await openMcpAuthPanel({
+      programmaticConfig: false,
+      config: { mcpServers: { disabled: { url: "https://example.test/mcp", auth: "oauth", disabled: true } } },
+    } as any, { getFlag: vi.fn() } as any, { hasUI: true, ui } as any);
+
+    expect(ui.notify).toHaveBeenCalledWith("No OAuth-capable MCP servers are configured.", "warning");
+    expect(ui.custom).not.toHaveBeenCalled();
+  });
+
   it("interpolates the server URL before OAuth authentication", async () => {
     const originalUrl = process.env.MCP_AUTH_URL;
     process.env.MCP_AUTH_URL = "https://mcp.sentry.dev/mcp";
