@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added disabled MCP server definitions plus `/mcp disable` and `/mcp enable` project-local overrides that preserve visibility while preventing execution. Thanks Ömer Ulusoy (@ulusoyomer) for PR #61.
 - Added argument completions for `/mcp` subcommands and reconnect/logout server names. Thanks @sting8k for PR #8.
 - Surfaced MCP connection failure reasons from bounded stdio diagnostics in status output and the `/mcp` panel, with a shortcut to copy the selected failure. Thanks @parkuman for PR #197.
 - Added Codex MCP imports from `.codex/config.toml`, with fallback to the existing JSON config. Thanks @npo-mmenke for PR #31.

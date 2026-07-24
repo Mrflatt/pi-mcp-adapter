@@ -33,7 +33,7 @@ import {
   type AuthStorageOptions,
   type StoredTokens,
 } from "./mcp-auth.ts"
-import type { ServerEntry } from "./types.ts"
+import { isServerDisabled, type ServerEntry } from "./types.ts"
 import { formatTerminalError, interpolateEnvRecord, interpolateEnvVars } from "./utils.ts"
 import { abortable, throwIfAborted } from "./abort.ts"
 import { combineAbortSignals, isAbortError } from "./runtime-owner.ts"
@@ -273,6 +273,7 @@ export async function startAuth(
   definition?: ServerEntry,
   options: AuthenticateOptions = {},
 ): Promise<{ authorizationUrl: string }> {
+  if (isServerDisabled(definition)) throw new Error(`MCP server "${serverName}" is disabled`)
   const runtime = getRuntime(options)
   const runtimeState = getRuntimeState(runtime)
   const config = definition ? extractOAuthConfig(definition) : {}
@@ -575,6 +576,7 @@ export async function authenticate(
   definition?: ServerEntry,
   options: AuthenticateOptions = {},
 ): Promise<AuthStatus> {
+  if (isServerDisabled(definition)) throw new Error(`MCP server "${serverName}" is disabled`)
   const runtime = getRuntime(options)
   const runtimeState = getRuntimeState(runtime)
   const authStorageOptions = options.authStorageOptions ?? {}

@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { McpExtensionState } from "./state.ts";
-import type { McpAdapterOptions, ToolMetadata } from "./types.ts";
+import { isServerDisabled, type McpAdapterOptions, type ToolMetadata } from "./types.ts";
 import { existsSync } from "node:fs";
 import { cloneMcpConfig, loadMcpConfig } from "./config.ts";
 import { ConsentManager } from "./consent-manager.ts";
@@ -170,8 +170,12 @@ export async function initializeMcp(
     }
   });
 
-  const serverEntries = Object.entries(config.mcpServers);
+  const allServerEntries = Object.entries(config.mcpServers);
+  const serverEntries = allServerEntries.filter(([, definition]) => !isServerDisabled(definition));
   if (serverEntries.length === 0) {
+    if (allServerEntries.length > 0 && hasUI) {
+      ui?.notify(`MCP: All ${allServerEntries.length} server(s) are disabled`, "info");
+    }
     return state;
   }
 
@@ -359,6 +363,7 @@ export async function initializeMcp(
 
 export function markKeepAliveAfterConnect(state: McpExtensionState, serverName: string): void {
   const definition = state.config.mcpServers[serverName];
+  if (isServerDisabled(definition)) return;
   if ((definition?.lifecycle ?? "lazy") === "lazy-keep-alive") {
     state.lifecycle.markKeepAlive(serverName, definition);
   }
@@ -370,6 +375,11 @@ export function updateServerMetadata(state: McpExtensionState, serverName: strin
 
   const definition = state.config.mcpServers[serverName];
   if (!definition) return;
+  if (isServerDisabled(definition)) {
+    state.toolMetadata.delete(serverName);
+    state.serverInstructions.delete(serverName);
+    return;
+  }
 
   const prefix = state.config.settings?.toolPrefix ?? "server";
 
@@ -387,7 +397,7 @@ export function updateMetadataCache(state: McpExtensionState, serverName: string
   if (!connection || connection.status !== "connected") return;
 
   const definition = state.config.mcpServers[serverName];
-  if (!definition) return;
+  if (!definition || isServerDisabled(definition)) return;
 
   const configHash = computeServerHash(definition);
   const existing = loadMetadataCache();
@@ -427,13 +437,19 @@ export function flushMetadataCache(state: McpExtensionState): void {
 export function updateStatusBar(state: McpExtensionState): void {
   const ui = state.ui;
   if (!ui) return;
-  const total = Object.keys(state.config.mcpServers).length;
-  if (total === 0) {
+  const entries = Object.entries(state.config.mcpServers);
+  const disabledCount = entries.filter(([, definition]) => isServerDisabled(definition)).length;
+  const enabledCount = entries.length - disabledCount;
+  if (entries.length === 0) {
     ui.setStatus("mcp", undefined);
     return;
   }
-  const connectedCount = state.manager.getAllConnections().size;
-  const status = `MCP: ${connectedCount}/${total} servers`;
+  const connectedCount = [...state.manager.getAllConnections()].filter(([name, connection]) => {
+    const definition = state.config.mcpServers[name];
+    return connection.status === "connected" && definition !== undefined && !isServerDisabled(definition);
+  }).length;
+  let status = `MCP: ${connectedCount}/${enabledCount} servers`;
+  if (disabledCount > 0) status += ` (${disabledCount} disabled)`;
   ui.setStatus("mcp", ui.theme ? ui.theme.fg("accent", status) : status);
 }
 
@@ -467,7 +483,7 @@ export async function lazyConnect(state: McpExtensionState, serverName: string, 
   if (failedAgo !== null) return false;
 
   const definition = state.config.mcpServers[serverName];
-  if (!definition) return false;
+  if (!definition || isServerDisabled(definition)) return false;
 
   try {
     if (state.ui) {

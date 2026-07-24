@@ -1,7 +1,7 @@
 import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { copyToClipboard } from "@earendil-works/pi-coding-agent";
 import { createPanelKeys, type PanelKeybindings, type PanelKeys } from "./panel-keys.ts";
-import { isToolExcluded } from "./types.ts";
+import { isServerDisabled, isToolExcluded } from "./types.ts";
 import type { McpConfig, McpPanelCallbacks, McpPanelResult, ServerProvenance, ToolPrefix } from "./types.ts";
 import { resourceNameToToolName } from "./resource-tools.ts";
 import { sanitizeTerminalText, stripOscSequences } from "./utils.ts";
@@ -114,7 +114,7 @@ function estimateTokens(tool: CachedTool): number {
   return Math.ceil((tool.name.length + descLen + schemaLen) / 4) + 10;
 }
 
-type ConnectionStatus = "connected" | "idle" | "failed" | "needs-auth" | "connecting";
+type ConnectionStatus = "connected" | "idle" | "failed" | "needs-auth" | "connecting" | "disabled";
 
 interface ToolState {
   name: string;
@@ -196,7 +196,7 @@ class McpPanel {
       }
 
       const tools: ToolState[] = [];
-      if (serverCache && !this.authOnly) {
+      if (serverCache && !this.authOnly && !isServerDisabled(definition)) {
         for (const tool of serverCache.tools ?? []) {
           if (isToolExcluded(tool.name, serverName, this.prefix, definition.excludeTools)) {
             continue;
@@ -421,6 +421,7 @@ class McpPanel {
       if (!item) return;
       const server = this.servers[item.serverIndex];
       if (item.type === "server") {
+        if (server.connectionStatus === "disabled") return;
         if (this.authOnly || server.connectionStatus === "needs-auth") {
           this.authenticateServer(server);
           return;
@@ -504,7 +505,7 @@ class McpPanel {
 
   private authenticateServer(server: ServerState): void {
     if (this.authInFlight) return;
-    if (server.connectionStatus === "connecting") return;
+    if (server.connectionStatus === "connecting" || server.connectionStatus === "disabled") return;
     const serverName = sanitizeDisplayText(server.name);
     if (!this.callbacks.canAuthenticate(server.name)) {
       this.authNotice = `${serverName} does not use OAuth authentication.`;
@@ -539,7 +540,7 @@ class McpPanel {
   }
 
   private reconnectServer(server: ServerState, options: { afterAuth?: boolean } = {}): void {
-    if (server.connectionStatus === "connecting") return;
+    if (server.connectionStatus === "connecting" || server.connectionStatus === "disabled") return;
     const serverName = sanitizeDisplayText(server.name);
     server.connectionStatus = "connecting";
     this.tui.requestRender();
@@ -908,6 +909,7 @@ class McpPanel {
   private renderConnectionStatus(server: ServerState): string {
     const t = this.t;
     if (this.authInFlight === server.name) return `  ${fg(t.needsAuth, "authenticating")}`;
+    if (server.connectionStatus === "disabled") return `  ${fg(t.description, "disabled")}`;
     if (server.connectionStatus === "needs-auth") return `  ${fg(t.needsAuth, "needs auth")}`;
     if (server.connectionStatus === "connecting") return `  ${fg(t.needsAuth, "connecting")}`;
     if (server.connectionStatus === "failed") return `  ${fg(t.cancel, "failed")}`;

@@ -4,7 +4,7 @@ import { ResourceFetchError, ResourceParseError } from "./errors.ts";
 import { logger } from "./logger.ts";
 import { SessionRecoveryAuthRequiredError, withSessionRecovery, type SessionRecoveryDeps } from "./session-recovery.ts";
 import type { McpServerManager } from "./server-manager.ts";
-import type { McpConfig, UiResourceContent, UiResourceCsp, UiResourceMeta } from "./types.ts";
+import { isServerDisabled, type McpConfig, type UiResourceContent, type UiResourceCsp, type UiResourceMeta } from "./types.ts";
 
 interface ResourceContentRecord {
   uri?: string;
@@ -37,6 +37,9 @@ export class UiResourceHandler {
     let result: ReadResourceResult;
     try {
       const config = options.config ?? this.config;
+      if (config && isServerDisabled(config.mcpServers[serverName])) {
+        throw new Error(`MCP server "${serverName}" is disabled`);
+      }
       if (config) {
         this.manager.touch(serverName);
         this.manager.incrementInFlight(serverName);

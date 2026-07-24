@@ -10,7 +10,7 @@ import { formatSchema } from "./tool-metadata.ts";
 import { resolveMcpResultContent, transformMcpContent } from "./tool-registrar.ts";
 import { guardMcpOutput, guardedMcpDetails, resolveMcpOutputGuardOptions } from "./mcp-output-guard.ts";
 import { maybeStartUiSession, summarizeUiSessionResult, type UiSessionRuntime } from "./ui-session.ts";
-import { formatToolName, isToolExcluded } from "./types.ts";
+import { formatToolName, isServerDisabled, isToolExcluded } from "./types.ts";
 import { resourceNameToToolName } from "./resource-tools.ts";
 import { authenticate, supportsOAuth } from "./mcp-auth-flow.ts";
 import { formatAuthRequiredMessage, resolveServerUrl, truncateAtWord } from "./utils.ts";
@@ -51,7 +51,7 @@ async function attemptDirectAutoAuth(
   }
 
   const definition = state.config.mcpServers[serverName];
-  if (!definition || !supportsOAuth(definition)) {
+  if (!definition || isServerDisabled(definition) || !supportsOAuth(definition)) {
     return { status: "skipped" };
   }
 
@@ -135,6 +135,7 @@ export function resolveDirectTools(
   const globalDirect = config.settings?.directTools;
 
   for (const [serverName, definition] of Object.entries(config.mcpServers)) {
+    if (isServerDisabled(definition)) continue;
     const serverCache = cache.servers[serverName];
     if (!serverCache || !isServerCacheValid(serverCache, definition)) continue;
 
@@ -217,6 +218,7 @@ export function getMissingConfiguredDirectToolServers(
   const globalDirect = config.settings?.directTools;
 
   for (const [serverName, definition] of Object.entries(config.mcpServers)) {
+    if (isServerDisabled(definition)) continue;
     const hasDirectTools = definition.directTools !== undefined
       ? !!definition.directTools
       : !!globalDirect;
@@ -253,8 +255,9 @@ export function buildProxyDescription(
 
   const serverSummaries: string[] = [];
   for (const serverName of Object.keys(config.mcpServers)) {
-    const entry = cache?.servers?.[serverName];
     const definition = config.mcpServers[serverName];
+    if (isServerDisabled(definition)) continue;
+    const entry = cache?.servers?.[serverName];
     const toolCount = (entry?.tools ?? []).filter(
       (tool) => !isToolExcluded(tool.name, serverName, prefix, definition.excludeTools),
     ).length;
@@ -277,8 +280,16 @@ export function buildProxyDescription(
     desc += `\nServers: ${serverSummaries.join(", ")}\n`;
   }
 
+  const disabledServers = Object.entries(config.mcpServers)
+    .filter(([, definition]) => isServerDisabled(definition))
+    .map(([serverName]) => serverName);
+  if (disabledServers.length > 0) {
+    desc += `\nDisabled servers (enable with /mcp enable <server> and /reload): ${disabledServers.join(", ")}\n`;
+  }
+
   const instructionSummaries: string[] = [];
   for (const serverName of Object.keys(config.mcpServers)) {
+    if (isServerDisabled(config.mcpServers[serverName])) continue;
     const instructions = cache?.servers?.[serverName]?.instructions;
     if (!instructions) continue;
     const snippet = truncateAtWord(instructions.replace(/\s+/g, " ").trim(), INSTRUCTIONS_SNIPPET_LENGTH);
@@ -337,6 +348,15 @@ export function createDirectToolExecutor(
       return {
         content: [{ type: "text" as const, text: "MCP not initialized" }],
         details: { error: "not_initialized" },
+      };
+    }
+
+    const definition = state.config.mcpServers[spec.serverName];
+    if (isServerDisabled(definition)) {
+      const message = `MCP server "${spec.serverName}" is disabled. Run /mcp enable ${spec.serverName} and /reload to enable it.`;
+      return {
+        content: [{ type: "text" as const, text: message }],
+        details: { error: "server_disabled", server: spec.serverName, message },
       };
     }
 

@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   openMcpAuthPanel: vi.fn(),
   openMcpPanel: vi.fn(),
   openMcpSetup: vi.fn(),
+  writeProjectServerDisabledOverride: vi.fn(() => ({ path: "/tmp/project/.pi/mcp.json", changed: true })),
   executeAuthComplete: vi.fn(),
   executeAuthStart: vi.fn(),
   executeCall: vi.fn(),
@@ -54,6 +55,7 @@ vi.mock("../mcp-auth-flow.ts", () => ({
 vi.mock("../config.ts", () => ({
   loadMcpConfig: mocks.loadMcpConfig,
   cloneMcpConfig: mocks.cloneMcpConfig,
+  writeProjectServerDisabledOverride: mocks.writeProjectServerDisabledOverride,
 }));
 
 vi.mock("../metadata-cache.ts", () => ({
@@ -519,6 +521,7 @@ describe("mcpAdapter session lifecycle", () => {
 
     const commandDef = api.registerCommand.mock.calls.find((call: any[]) => call[0] === "mcp")?.[1];
     await commandDef.handler("setup", { hasUI: true, ui });
+    await commandDef.handler("disable memory", { hasUI: true, ui });
     await commandDef.handler("status", { hasUI: true, ui });
     const authDef = api.registerCommand.mock.calls.find((call: any[]) => call[0] === "mcp-auth")?.[1];
     await authDef.handler("", { hasUI: true, ui });
@@ -526,6 +529,7 @@ describe("mcpAdapter session lifecycle", () => {
     expect(mocks.openMcpSetup).not.toHaveBeenCalled();
     expect(mocks.openMcpPanel).not.toHaveBeenCalled();
     expect(mocks.openMcpAuthPanel).not.toHaveBeenCalled();
+    expect(mocks.writeProjectServerDisabledOverride).not.toHaveBeenCalled();
     expect(mocks.showStatus).toHaveBeenCalled();
     expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("in-memory"), "info");
   });
@@ -619,6 +623,8 @@ describe("mcpAdapter session lifecycle", () => {
       "tools",
       "setup",
       "logout",
+      "disable",
+      "enable",
       "status",
     ]);
     expect(commandDef.getArgumentCompletions("st")).toEqual([
@@ -632,6 +638,13 @@ describe("mcpAdapter session lifecycle", () => {
     expect(commandDef.getArgumentCompletions("  logout git")).toEqual([
       { value: "logout github", label: "github" },
       { value: "logout gitlab", label: "gitlab" },
+    ]);
+    expect(commandDef.getArgumentCompletions("disable git")).toEqual([
+      { value: "disable github", label: "github" },
+      { value: "disable gitlab", label: "gitlab" },
+    ]);
+    expect(commandDef.getArgumentCompletions("enable not")).toEqual([
+      { value: "enable notion", label: "notion" },
     ]);
     expect(commandDef.getArgumentCompletions("tools anything")).toBeNull();
     expect(api.registerCommand.mock.calls.some((call: any[]) => call[0] === "mcp-reconnect")).toBe(false);
@@ -676,6 +689,26 @@ describe("mcpAdapter session lifecycle", () => {
     await commandDef.handler("logout oauth-server", { hasUI: true, ui });
 
     expect(mocks.logoutServer).toHaveBeenCalledWith("oauth-server", state, expect.any(Object));
+  });
+
+  it("writes project-local disabled overrides and rejects unknown servers", async () => {
+    const state = createState();
+    state.config.mcpServers = { global: { url: "https://example.test/mcp" } };
+    mocks.initializeMcp.mockResolvedValue(state);
+
+    const { default: mcpAdapter } = await import("../index.ts");
+    const { api, handlers } = createPi();
+    mcpAdapter(api);
+    await handlers.get("session_start")?.({}, { hasUI: true, cwd: "/tmp/project", ui: { notify: vi.fn() } });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const commandDef = api.registerCommand.mock.calls.find((call: any[]) => call[0] === "mcp")?.[1];
+    const ui = { notify: vi.fn() };
+    await commandDef.handler("disable global", { hasUI: true, cwd: "/tmp/project", ui });
+    expect(mocks.writeProjectServerDisabledOverride).toHaveBeenCalledWith(undefined, "/tmp/project", "global", true);
+    await commandDef.handler("disable missing", { hasUI: true, cwd: "/tmp/project", ui });
+    expect(ui.notify).toHaveBeenCalledWith("Server \"missing\" not found in effective config", "error");
   });
 
   it("shows usage for `/mcp logout` without a server", async () => {

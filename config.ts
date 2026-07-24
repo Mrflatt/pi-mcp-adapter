@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { getAgentPath } from "./agent-dir.ts";
-import type { McpConfig, ServerEntry, McpSettings, ImportKind, ServerProvenance } from "./types.ts";
+import { isServerDisabled, type McpConfig, type ServerEntry, type McpSettings, type ImportKind, type ServerProvenance } from "./types.ts";
 import { toStringRecord } from "./utils.ts";
 
 const GENERIC_GLOBAL_CONFIG_PATH = join(homedir(), ".config", "mcp", "mcp.json");
@@ -692,6 +692,79 @@ function getServersObject(raw: Record<string, unknown>): Record<string, ServerEn
 function setServersObject(raw: Record<string, unknown>, servers: Record<string, ServerEntry>): void {
   delete raw["mcp-servers"];
   raw.mcpServers = servers;
+}
+
+export interface ServerDisabledOverrideResult {
+  path: string;
+  changed: boolean;
+}
+
+/**
+ * Persist only the disabled field in the project Pi layer. Enabling writes an
+ * explicit false only when a lower-precedence source is itself disabled; this
+ * writer never copies a server definition or its credentials into the file.
+ */
+export function writeProjectServerDisabledOverride(
+  overridePath: string | undefined,
+  cwd: string,
+  serverName: string,
+  disabled: boolean,
+): ServerDisabledOverrideResult {
+  const filePath = getProjectPiConfigPath(cwd);
+  let raw: Record<string, unknown> = {};
+  if (existsSync(filePath)) {
+    try {
+      const parsed = JSON.parse(readFileSync(filePath, "utf-8"));
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("root value must be an object");
+      }
+      raw = parsed as Record<string, unknown>;
+    } catch (error) {
+      throw new Error(`Failed to read project MCP override at ${filePath}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+    }
+  }
+
+  const serverKey = raw.mcpServers !== undefined ? "mcpServers" : raw["mcp-servers"] !== undefined ? "mcp-servers" : "mcpServers";
+  const rawServers = raw[serverKey];
+  if (rawServers !== undefined && (!rawServers || typeof rawServers !== "object" || Array.isArray(rawServers))) {
+    throw new Error(`Failed to update project MCP override at ${filePath}: ${serverKey} must be an object`);
+  }
+  const servers = (rawServers ?? {}) as Record<string, unknown>;
+  const previous = servers[serverName];
+  if (previous !== undefined && (!previous || typeof previous !== "object" || Array.isArray(previous))) {
+    throw new Error(`Failed to update project MCP override at ${filePath}: server "${serverName}" must be an object`);
+  }
+  const existing = previous as Record<string, unknown> | undefined;
+
+  let next: Record<string, unknown>;
+  if (disabled) {
+    next = { ...existing, disabled: true };
+  } else {
+    next = Object.fromEntries(Object.entries(existing ?? {}).filter(([key]) => key !== "disabled"));
+    let lowerConfig: McpConfig = { mcpServers: {} };
+    for (const source of getConfigSources(overridePath, cwd)) {
+      if (source.readPath === filePath) continue;
+      const loaded = readValidatedConfig(source.readPath, `MCP config from ${source.readPath}`);
+      if (loaded) lowerConfig = mergeConfigs(lowerConfig, expandImports(loaded, cwd));
+    }
+    if (raw.imports !== undefined) {
+      if (!Array.isArray(raw.imports) || raw.imports.some((kind) => typeof kind !== "string" || !Object.hasOwn(IMPORT_PATHS, kind))) {
+        throw new Error(`Failed to update project MCP override at ${filePath}: imports contains an unsupported config kind`);
+      }
+      lowerConfig = mergeConfigs(lowerConfig, expandImports({ mcpServers: {}, imports: raw.imports as ImportKind[] }, cwd));
+    }
+    if (isServerDisabled(lowerConfig.mcpServers[serverName])) next.disabled = false;
+  }
+
+  if ((!existing && Object.keys(next).length === 0) || JSON.stringify(existing) === JSON.stringify(next)) {
+    return { path: filePath, changed: false };
+  }
+  if (Object.keys(next).length === 0) delete servers[serverName];
+  else servers[serverName] = next;
+
+  raw[serverKey] = servers;
+  writeRawConfigObject(filePath, raw);
+  return { path: filePath, changed: true };
 }
 
 function isRepoPromptServer(name: string, entry: ServerEntry): boolean {

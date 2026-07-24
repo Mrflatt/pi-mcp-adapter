@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { McpExtensionState } from "./state.ts";
-import type { McpAuthResult, McpConfig, McpPanelCallbacks, McpPanelResult, ImportKind } from "./types.ts";
+import { isServerDisabled, type McpAuthResult, type McpConfig, type McpPanelCallbacks, type McpPanelResult, type ImportKind } from "./types.ts";
 import {
   ensureCompatibilityImports,
   getMcpDiscoverySummary,
@@ -9,6 +9,7 @@ import {
   previewSharedServerEntry,
   previewStarterProjectConfig,
   writeDirectToolsConfig,
+  writeProjectServerDisabledOverride,
   writeSharedServerEntry,
   writeStarterProjectConfig,
 } from "./config.ts";
@@ -27,6 +28,11 @@ export async function showStatus(state: McpExtensionState, ctx: ExtensionContext
   const lines: string[] = ["MCP Server Status:", ""];
 
   for (const name of Object.keys(state.config.mcpServers)) {
+    const definition = state.config.mcpServers[name];
+    if (isServerDisabled(definition)) {
+      lines.push(`⊘ ${name}: disabled (run /mcp enable ${name}, then /reload)`);
+      continue;
+    }
     const connection = state.manager.getConnection(name);
     const metadata = state.toolMetadata.get(name);
     const toolCount = metadata?.length ?? 0;
@@ -65,7 +71,9 @@ export async function showStatus(state: McpExtensionState, ctx: ExtensionContext
 export async function showTools(state: McpExtensionState, ctx: ExtensionContext): Promise<void> {
   if (!ctx.hasUI) return;
 
-  const allTools = [...state.toolMetadata.values()].flat().map(m => m.name);
+  const allTools = [...state.toolMetadata.entries()]
+    .filter(([serverName]) => !isServerDisabled(state.config.mcpServers[serverName]))
+    .flatMap(([, metadata]) => metadata.map(m => m.name));
 
   if (allTools.length === 0) {
     ctx.ui.notify("No MCP tools available", "info");
@@ -95,6 +103,10 @@ export async function reconnectServer(
     if (ui) {
       ui.notify(`Server "${name}" not found in config`, "error");
     }
+    return false;
+  }
+  if (isServerDisabled(definition)) {
+    if (ui) ui.notify(`MCP: ${name} is disabled. Run /mcp enable ${name}, then /reload.`, "warning");
     return false;
   }
 
@@ -184,6 +196,11 @@ export async function authenticateServer(
   if (!definition) {
     const message = `Server "${serverName}" not found in config`;
     ui.notify(message, "error");
+    return { ok: false, message };
+  }
+  if (isServerDisabled(definition)) {
+    const message = `Server "${serverName}" is disabled. Run /mcp enable ${serverName}, then /reload.`;
+    ui.notify(message, "warning");
     return { ok: false, message };
   }
 
@@ -361,11 +378,12 @@ function buildMcpPanelCallbacks(
     reconnect: (serverName: string) => reconnectServer(state, ctx, serverName),
     canAuthenticate: (serverName: string) => {
       const definition = config.mcpServers[serverName];
-      return definition ? supportsOAuth(definition) : false;
+      return definition ? !isServerDisabled(definition) && supportsOAuth(definition) : false;
     },
     authenticate: (serverName: string) => authenticateServer(serverName, config, ctx, state.owner?.signal, state.oauthRuntime),
     getConnectionStatus: (serverName: string) => {
       const definition = config.mcpServers[serverName];
+      if (isServerDisabled(definition)) return "disabled";
       const connection = state.manager.getConnection(serverName);
       if (connection?.status === "needs-auth") {
         return "needs-auth";
@@ -462,7 +480,9 @@ export async function openMcpAuthPanel(
   }
 
   const config = state.config;
-  const oauthServers = Object.entries(config.mcpServers).filter(([, definition]) => supportsOAuth(definition));
+  const oauthServers = Object.entries(config.mcpServers).filter(
+    ([, definition]) => !isServerDisabled(definition) && supportsOAuth(definition),
+  );
   if (oauthServers.length === 0) {
     ctx.ui.notify("No OAuth-capable MCP servers are configured.", "warning");
     return { configChanged: false };

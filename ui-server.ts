@@ -17,6 +17,7 @@ import { SessionRecoveryAuthRequiredError, withSessionRecovery, type SessionReco
 import {
   extractUiPromptText,
   getVisualizationStreamEnvelope,
+  isServerDisabled,
   type McpConfig,
   type UiDisplayMode,
   type UiDisplayModeRequest,
@@ -347,6 +348,10 @@ export async function startUiServer(options: UiServerOptions): Promise<UiServerH
         const connection = options.manager.getConnection(options.serverName);
         if (!connection || connection.status !== "connected") {
           sendJson(res, 503, { ok: false, error: `Server "${options.serverName}" is not connected` });
+          return;
+        }
+        if (isServerDisabled(options.config?.mcpServers[options.serverName]) || isServerDisabled(connection.definition)) {
+          sendJson(res, 503, { ok: false, error: `Server "${options.serverName}" is disabled` });
           return;
         }
 

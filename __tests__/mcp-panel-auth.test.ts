@@ -21,7 +21,7 @@ function createCache(config: McpConfig): MetadataCache {
   };
 }
 
-function createCallbacks(status: "connected" | "idle" | "failed" | "needs-auth" = "needs-auth") {
+function createCallbacks(status: "connected" | "idle" | "failed" | "needs-auth" | "disabled" = "needs-auth") {
   let currentStatus = status;
   const callbacks: McpPanelCallbacks = {
     reconnect: vi.fn(async () => {
@@ -80,6 +80,22 @@ describe("mcp-panel auth actions", () => {
     await Promise.resolve();
 
     expect(callbacks.authenticate).toHaveBeenCalledWith("github");
+    panel.dispose();
+  });
+
+  it("ignores the auth shortcut for a disabled server", async () => {
+    const config: McpConfig = {
+      mcpServers: {
+        github: { url: "https://api.githubcopilot.com/mcp", auth: "oauth", disabled: true },
+      },
+    };
+    const callbacks = createCallbacks("disabled");
+    const panel = createMcpPanel(config, createCache(config), new Map(), callbacks, { requestRender: () => {} }, () => {});
+
+    panel.handleInput("\x01");
+    await Promise.resolve();
+
+    expect(callbacks.authenticate).not.toHaveBeenCalled();
     panel.dispose();
   });
 
