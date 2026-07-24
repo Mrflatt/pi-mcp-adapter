@@ -665,9 +665,10 @@ export async function executeConnect(state: McpExtensionState, serverName: strin
     if (state.ui) {
       state.ui.setStatus("mcp", `🔌 MCP: connecting to ${serverName}...`);
     }
-    let connection = ownedSignal
-      ? await state.manager.connect(serverName, definition, ownedSignal)
-      : await state.manager.connect(serverName, definition);
+    const currentConnection = state.manager.getConnection(serverName);
+    let connection = currentConnection?.status === "connected"
+      ? await state.manager.reconnect(serverName, definition, currentConnection, ownedSignal)
+      : await state.manager.connect(serverName, definition, ownedSignal);
     if (connection.status === "needs-auth") {
       const autoAuth = await attemptAutoAuth(state, serverName, ownedSignal);
       if (autoAuth.status === "failed") {

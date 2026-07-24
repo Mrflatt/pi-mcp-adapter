@@ -99,6 +99,46 @@ describe("proxy auto auth", () => {
     });
   });
 
+  it("refreshes an already connected server instead of reusing stale metadata", async () => {
+    const { executeConnect } = await import("../proxy-modes.ts");
+
+    const stale = {
+      status: "connected",
+      tools: [{ name: "old", description: "Old tool" }],
+      resources: [],
+    };
+    const fresh = {
+      status: "connected",
+      tools: [{ name: "fresh", description: "Fresh tool" }],
+      resources: [],
+    };
+    const manager = {
+      getConnection: vi.fn(() => fresh),
+      connect: vi.fn(async () => {
+        throw new Error("connect should not reuse the stale connection");
+      }),
+      reconnect: vi.fn(async () => fresh),
+    };
+    manager.getConnection.mockReturnValueOnce(stale);
+
+    const state = {
+      config: { mcpServers: { demo: { command: "node", args: ["server.js"] } } },
+      manager,
+      toolMetadata: new Map(),
+      serverInstructions: new Map(),
+      failureTracker: new Map(),
+      ui: undefined,
+    } as any;
+
+    const result = await executeConnect(state, "demo");
+
+    expect(manager.reconnect).toHaveBeenCalledWith("demo", state.config.mcpServers.demo, stale, undefined);
+    expect(manager.connect).not.toHaveBeenCalled();
+    expect(result.details).toMatchObject({ mode: "list", server: "demo", count: 1 });
+    expect(result.content[0].text).toContain("demo_fresh");
+    expect(state.toolMetadata.get("demo")?.[0]).toMatchObject({ originalName: "fresh" });
+  });
+
   it("auto-authenticates and retries executeConnect once", async () => {
     const { executeConnect } = await import("../proxy-modes.ts");
 
