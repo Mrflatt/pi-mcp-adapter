@@ -174,7 +174,8 @@ In the configuration examples below, `30000` is illustrative only. If `requestTi
 | `requestTimeoutMs` | Request timeout in milliseconds for live MCP calls (overrides global; if omitted or `<= 0`, the MCP SDK default timeout is used) |
 | `exposeResources` | Expose MCP resources as tools (default: true) |
 | `directTools` | `true`, `string[]`, or `false` — register tools individually instead of through proxy |
-| `excludeTools` | `string[]` of tool names to hide (matches original names like `get_screenshot` and prefixed names like `figma_get_screenshot`) |
+| `includeTools` | `string[]` of tool names or glob patterns to expose (matches original names like `get_screenshot` and prefixed names like `figma_get_screenshot`) |
+| `excludeTools` | `string[]` of tool names or glob patterns to hide (applied after `includeTools`) |
 | `debug` | Show server stderr (default: false) |
 | `disabled` | Keep the server visible in config and status, but prevent connections, authentication, tools, and resource calls (only literal `true` disables it) |
 
@@ -327,7 +328,21 @@ To set a global default for all servers:
 
 Per-server `directTools` overrides the global setting. The example above registers direct tools for every server except `huge-server`.
 
-To exclude specific tools while still using `directTools: true`, add `excludeTools` on the server:
+To expose only a subset of a noisy server, add `includeTools` on the server. Values can be exact original names, prefixed names, or simple glob patterns:
+
+```json
+{
+  "mcpServers": {
+    "dokploy": {
+      "url": "http://localhost:3845/mcp",
+      "directTools": true,
+      "includeTools": ["get_*", "dokploy_list_apps"]
+    }
+  }
+}
+```
+
+To hide specific tools while still using `directTools: true`, add `excludeTools` on the server. `excludeTools` is applied after `includeTools`:
 
 ```json
 {
@@ -341,7 +356,7 @@ To exclude specific tools while still using `directTools: true`, add `excludeToo
 }
 ```
 
-`excludeTools` filters direct tools, proxy search/list/describe, and the `/mcp` panel view.
+`includeTools` and `excludeTools` filter direct tools, proxy search/list/describe, and the `/mcp` panel view.
 
 Each direct tool costs ~150-300 tokens in the system prompt (name + description + schema). Good for targeted sets of 5-20 tools. For servers with 75+ tools, stick with the proxy or pick specific tools with a `string[]`.
 

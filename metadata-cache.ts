@@ -5,7 +5,7 @@ import { getAgentPath } from "./agent-dir.ts";
 import { createHash } from "node:crypto";
 import { getToolUiResourceUri } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { McpTool, McpResource, McpPrompt, McpPromptArgument, ServerEntry, ToolMetadata, PromptMetadata } from "./types.ts";
-import { formatPromptCommandName, formatToolName, isToolExcluded, type ToolPrefix } from "./types.ts";
+import { formatPromptCommandName, formatToolName, isToolAllowed, type ToolPrefix } from "./types.ts";
 import { resourceNameToToolName } from "./resource-tools.ts";
 import {
   extractToolUiStreamMode,
@@ -111,6 +111,7 @@ export function computeServerHash(definition: ServerEntry): string {
     bearerToken: resolveBearerToken(definition),
     bearerTokenEnv: definition.bearerTokenEnv,
     exposeResources: definition.exposeResources,
+    includeTools: definition.includeTools,
     excludeTools: definition.excludeTools,
   };
   const normalized = stableStringify(identity);
@@ -138,14 +139,14 @@ export function reconstructToolMetadata(
   serverName: string,
   entry: ServerCacheEntry,
   prefix: ToolPrefix,
-  definition: Pick<ServerEntry, "exposeResources" | "excludeTools">
+  definition: Pick<ServerEntry, "exposeResources" | "includeTools" | "excludeTools">
 ): ToolMetadata[] {
   const metadata: ToolMetadata[] = [];
   const seenNames = new Set<string>();
 
   for (const tool of entry.tools ?? []) {
     if (!tool?.name) continue;
-    if (isToolExcluded(tool.name, serverName, prefix, definition.excludeTools)) {
+    if (!isToolAllowed(tool.name, serverName, prefix, definition.includeTools, definition.excludeTools)) {
       continue;
     }
 
@@ -169,7 +170,7 @@ export function reconstructToolMetadata(
     for (const resource of entry.resources ?? []) {
       if (!resource?.name || !resource?.uri) continue;
       const baseName = `get_${resourceNameToToolName(resource.name)}`;
-      if (isToolExcluded(baseName, serverName, prefix, definition.excludeTools)) {
+      if (!isToolAllowed(baseName, serverName, prefix, definition.includeTools, definition.excludeTools)) {
         continue;
       }
 

@@ -1,7 +1,7 @@
 import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { copyToClipboard } from "@earendil-works/pi-coding-agent";
 import { createPanelKeys, type PanelKeybindings, type PanelKeys } from "./panel-keys.ts";
-import { isServerDisabled, isToolExcluded } from "./types.ts";
+import { isServerDisabled, isToolAllowed } from "./types.ts";
 import type { McpConfig, McpPanelCallbacks, McpPanelResult, ServerProvenance, ToolPrefix } from "./types.ts";
 import { resourceNameToToolName } from "./resource-tools.ts";
 import { sanitizeTerminalText, stripOscSequences } from "./utils.ts";
@@ -129,6 +129,7 @@ interface ServerState {
   expanded: boolean;
   source: "user" | "project" | "import";
   importKind?: string;
+  includeTools?: string[];
   excludeTools?: string[];
   exposeResources: boolean;
   connectionStatus: ConnectionStatus;
@@ -198,7 +199,7 @@ class McpPanel {
       const tools: ToolState[] = [];
       if (serverCache && !this.authOnly && !isServerDisabled(definition)) {
         for (const tool of serverCache.tools ?? []) {
-          if (isToolExcluded(tool.name, serverName, this.prefix, definition.excludeTools)) {
+          if (!isToolAllowed(tool.name, serverName, this.prefix, definition.includeTools, definition.excludeTools)) {
             continue;
           }
 
@@ -214,7 +215,7 @@ class McpPanel {
         if (definition.exposeResources !== false) {
           for (const resource of serverCache.resources ?? []) {
             const baseName = `get_${resourceNameToToolName(resource.name)}`;
-            if (isToolExcluded(baseName, serverName, this.prefix, definition.excludeTools)) {
+            if (!isToolAllowed(baseName, serverName, this.prefix, definition.includeTools, definition.excludeTools)) {
               continue;
             }
 
@@ -239,6 +240,7 @@ class McpPanel {
         expanded: false,
         source: prov?.kind ?? "user",
         importKind: prov?.importKind,
+        includeTools: definition.includeTools,
         excludeTools: definition.excludeTools,
         exposeResources: definition.exposeResources !== false,
         connectionStatus: status,
@@ -628,7 +630,7 @@ class McpPanel {
 
     const newTools: ToolState[] = [];
     for (const tool of entry.tools ?? []) {
-      if (isToolExcluded(tool.name, server.name, this.prefix, server.excludeTools)) {
+      if (!isToolAllowed(tool.name, server.name, this.prefix, server.includeTools, server.excludeTools)) {
         continue;
       }
 
@@ -646,7 +648,7 @@ class McpPanel {
     if (server.exposeResources) {
       for (const resource of entry.resources ?? []) {
         const baseName = `get_${resourceNameToToolName(resource.name)}`;
-        if (isToolExcluded(baseName, server.name, this.prefix, server.excludeTools)) {
+        if (!isToolAllowed(baseName, server.name, this.prefix, server.includeTools, server.excludeTools)) {
           continue;
         }
 

@@ -349,6 +349,40 @@ describe("excludeTools filtering", () => {
     expect(reconstructed.map((tool) => tool.name)).toEqual(["figma_get_nodes"]);
   });
 
+  it("filters included tools from live and cached metadata before applying exclusions", () => {
+    const definition = {
+      command: "npx",
+      args: ["-y", "figma"],
+      includeTools: ["get_node*", "figma_get_figjam"],
+      excludeTools: ["get_nodes_secret"],
+    };
+
+    const tools = [
+      { name: "get_screenshot", description: "Screenshot" },
+      { name: "get_nodes", description: "Nodes" },
+      { name: "get_nodes_secret", description: "Secret nodes" },
+    ];
+    const resources = [{ name: "figjam", uri: "ui://figjam", description: "FigJam" }];
+
+    const { metadata } = buildToolMetadata(tools as any, resources as any, definition, "figma", "server");
+
+    expect(metadata.map((tool) => tool.name)).toEqual(["figma_get_nodes", "figma_get_figjam"]);
+
+    const reconstructed = reconstructToolMetadata(
+      "figma",
+      {
+        configHash: computeServerHash(definition),
+        cachedAt: Date.now(),
+        tools,
+        resources,
+      },
+      "server",
+      definition,
+    );
+
+    expect(reconstructed.map((tool) => tool.name)).toEqual(["figma_get_nodes", "figma_get_figjam"]);
+  });
+
   it("sanitizes registered names while preserving raw MCP names", () => {
     const { metadata } = buildToolMetadata(
       [{ name: "namespace.tool", description: "Namespaced tool" }] as any,
@@ -441,6 +475,41 @@ describe("excludeTools filtering", () => {
     const specs = resolveDirectTools(config, cache, "server");
 
     expect(specs.map((spec) => spec.prefixedName)).toEqual(["figma_get_nodes"]);
+  });
+
+  it("filters included tools during direct tool registration from cache", () => {
+    const config: McpConfig = {
+      settings: { toolPrefix: "server" },
+      mcpServers: {
+        figma: {
+          command: "npx",
+          args: ["-y", "figma"],
+          directTools: true,
+          includeTools: ["get_node*", "figma_get_figjam"],
+          excludeTools: ["get_nodes_secret"],
+        },
+      },
+    };
+
+    const cache: MetadataCache = {
+      version: 1,
+      servers: {
+        figma: {
+          configHash: computeServerHash(config.mcpServers.figma),
+          cachedAt: Date.now(),
+          tools: [
+            { name: "get_screenshot", description: "Screenshot" },
+            { name: "get_nodes", description: "Nodes" },
+            { name: "get_nodes_secret", description: "Secret nodes" },
+          ],
+          resources: [{ name: "figjam", uri: "ui://figjam", description: "FigJam" }],
+        },
+      },
+    };
+
+    const specs = resolveDirectTools(config, cache, "server");
+
+    expect(specs.map((spec) => spec.prefixedName)).toEqual(["figma_get_nodes", "figma_get_figjam"]);
   });
 
   it("matches mcp-prefixed exclusions when toolPrefix is mcp", () => {

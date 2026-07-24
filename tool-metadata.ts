@@ -1,7 +1,7 @@
 import { getToolUiResourceUri } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { McpExtensionState } from "./state.ts";
 import type { ToolMetadata, McpTool, McpResource, ServerEntry, ToolPrefix } from "./types.ts";
-import { formatToolName, isToolExcluded } from "./types.ts";
+import { formatToolName, isToolAllowed } from "./types.ts";
 import { resourceNameToToolName } from "./resource-tools.ts";
 import { extractToolUiStreamMode } from "./utils.ts";
 
@@ -21,7 +21,7 @@ export function buildToolMetadata(
       failedTools.push("(unnamed)");
       continue;
     }
-    if (isToolExcluded(tool.name, serverName, prefix, definition.excludeTools)) {
+    if (!isToolAllowed(tool.name, serverName, prefix, definition.includeTools, definition.excludeTools)) {
       continue;
     }
 
@@ -50,7 +50,7 @@ export function buildToolMetadata(
   if (definition.exposeResources !== false) {
     for (const resource of resources) {
       const baseName = `get_${resourceNameToToolName(resource.name)}`;
-      if (isToolExcluded(baseName, serverName, prefix, definition.excludeTools)) {
+      if (!isToolAllowed(baseName, serverName, prefix, definition.includeTools, definition.excludeTools)) {
         continue;
       }
 

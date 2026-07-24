@@ -321,7 +321,8 @@ export interface ServerEntry {
   exposeResources?: boolean;
   // Direct tool registration
   directTools?: boolean | string[];
-  // Exclude specific MCP tools/resources by original or prefixed name
+  // Include/exclude specific MCP tools/resources by original or prefixed name
+  includeTools?: string[];
   excludeTools?: string[];
   // Debug
   debug?: boolean;  // Show server stderr (default: false)
@@ -500,28 +501,64 @@ function normalizeToolName(value: string): string {
   return value.replace(/-/g, "_");
 }
 
-export function isToolExcluded(
-  toolName: string,
-  serverName: string,
-  prefix: ToolPrefix,
-  excludeTools?: unknown
-): boolean {
-  if (!Array.isArray(excludeTools) || excludeTools.length === 0) return false;
-
-  const candidates = new Set<string>([
+function getToolNameCandidates(toolName: string, serverName: string, prefix: ToolPrefix): Set<string> {
+  return new Set<string>([
     normalizeToolName(toolName),
     normalizeToolName(formatToolName(toolName, serverName, prefix)),
     normalizeToolName(formatToolName(toolName, serverName, "server")),
     normalizeToolName(formatToolName(toolName, serverName, "short")),
     normalizeToolName(formatToolName(toolName, serverName, "mcp")),
   ]);
+}
 
-  for (const excluded of excludeTools) {
-    if (typeof excluded !== "string") continue;
-    if (candidates.has(normalizeToolName(excluded))) {
+function globToRegExp(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  return new RegExp(`^${escaped}$`);
+}
+
+function matchesToolPattern(candidates: Set<string>, patterns?: unknown): boolean {
+  if (!Array.isArray(patterns) || patterns.length === 0) return false;
+
+  for (const pattern of patterns) {
+    if (typeof pattern !== "string") continue;
+    const normalized = normalizeToolName(pattern);
+    if (!normalized.includes("*") && !normalized.includes("?") && candidates.has(normalized)) {
+      return true;
+    }
+    if ((normalized.includes("*") || normalized.includes("?")) && [...candidates].some(candidate => globToRegExp(normalized).test(candidate))) {
       return true;
     }
   }
 
   return false;
+}
+
+export function isToolIncluded(
+  toolName: string,
+  serverName: string,
+  prefix: ToolPrefix,
+  includeTools?: unknown
+): boolean {
+  if (!Array.isArray(includeTools) || includeTools.length === 0) return true;
+  return matchesToolPattern(getToolNameCandidates(toolName, serverName, prefix), includeTools);
+}
+
+export function isToolExcluded(
+  toolName: string,
+  serverName: string,
+  prefix: ToolPrefix,
+  excludeTools?: unknown
+): boolean {
+  return matchesToolPattern(getToolNameCandidates(toolName, serverName, prefix), excludeTools);
+}
+
+export function isToolAllowed(
+  toolName: string,
+  serverName: string,
+  prefix: ToolPrefix,
+  includeTools?: unknown,
+  excludeTools?: unknown,
+): boolean {
+  return isToolIncluded(toolName, serverName, prefix, includeTools)
+    && !isToolExcluded(toolName, serverName, prefix, excludeTools);
 }
