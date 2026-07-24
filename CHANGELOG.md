@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.12.1] - 2026-07-24
+
+### Fixed
+- Restored the SDK v1 dependency required by the MCP Apps bridge during Pi managed installs, where peer dependencies are intentionally not auto-installed. Thanks Nikolai Ugelvik (@NikolaiUgelvik), @warmwaffles, and @max-miller1204 for issue #212.
+
 ## [2.12.0] - 2026-07-24
 
 ### Added
