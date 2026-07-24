@@ -145,6 +145,9 @@ describe("AbortSignal propagation", () => {
   it("server-manager resource discovery does not swallow host aborts", async () => {
     const controller = new AbortController();
     const client = {
+      // Resource discovery is capability-gated, so the abort path is only
+      // reachable for a server that advertises `resources`.
+      getServerCapabilities: () => ({ resources: {} }),
       listResources: vi.fn(async (_params, options?: { signal?: AbortSignal }) => {
         options?.signal?.throwIfAborted();
         return { resources: [] };
