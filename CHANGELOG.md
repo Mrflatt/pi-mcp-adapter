@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added a plug icon prefix to MCP footer status text. Thanks Felipe Cadal (@cadal-cw) for issue #145.
 - Discovered user-global MCP configs from `~/.agents/mcp.json` and `~/.agents/mcp/mcp.json`. Thanks David Jadczyk (@davidjadczyk) for issue #117.
 - Accepted JSONC-style comments and trailing commas in MCP JSON config files. Thanks @GoCoder7 for issue #124.
 

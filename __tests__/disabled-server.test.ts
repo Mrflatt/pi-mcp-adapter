@@ -234,6 +234,6 @@ describe("disabled MCP servers", () => {
       ...disabledState(),
       ui: { setStatus, theme: undefined },
     });
-    expect(setStatus).toHaveBeenCalledWith("mcp", "MCP: 0/1 servers (1 disabled)");
+    expect(setStatus).toHaveBeenCalledWith("mcp", "🔌 MCP: 0/1 servers (1 disabled)");
   });
 });

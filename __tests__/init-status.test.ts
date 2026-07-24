@@ -16,7 +16,7 @@ describe("updateStatusBar", () => {
 
     updateStatusBar(state);
 
-    expect(setStatus).toHaveBeenCalledWith("mcp", "MCP: 0/1 servers");
+    expect(setStatus).toHaveBeenCalledWith("mcp", "🔌 MCP: 0/1 servers");
   });
 
   it("does not count a needs-auth connection as connected", () => {
@@ -26,7 +26,7 @@ describe("updateStatusBar", () => {
 
     updateStatusBar(state);
 
-    expect(setStatus).toHaveBeenCalledWith("mcp", "MCP: 0/1 servers");
+    expect(setStatus).toHaveBeenCalledWith("mcp", "🔌 MCP: 0/1 servers");
   });
 
   it("keeps themed status text when a theme is available", () => {
@@ -38,6 +38,6 @@ describe("updateStatusBar", () => {
 
     updateStatusBar(state);
 
-    expect(setStatus).toHaveBeenCalledWith("mcp", "styled:MCP: 0/1 servers");
+    expect(setStatus).toHaveBeenCalledWith("mcp", "styled:🔌 MCP: 0/1 servers");
   });
 });
