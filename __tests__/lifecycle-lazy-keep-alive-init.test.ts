@@ -49,6 +49,7 @@ vi.mock("../direct-tools.ts", () => ({
 }));
 
 function createManager() {
+  let metadataListChanged: ((serverName: string, reason: string) => void) | undefined;
   const connection = {
     status: "connected" as const,
     tools: [],
@@ -58,6 +59,10 @@ function createManager() {
   const manager = {
     setDefaultRequestTimeoutMs: vi.fn(),
     setAuthStorageOptions: vi.fn(),
+    setMetadataListChangedListener: vi.fn((listener) => {
+      metadataListChanged = listener;
+    }),
+    emitMetadataListChanged: (serverName = "srv", reason = "resources-list-changed") => metadataListChanged?.(serverName, reason),
     setSamplingConfig: vi.fn(),
     setElicitationConfig: vi.fn(),
     getConnection: vi.fn(() => current),
@@ -220,6 +225,35 @@ describe("lazy-keep-alive initializeMcp integration", () => {
     expect(state.failureTracker.size).toBe(0);
     expect(state.failureMessages.size).toBe(0);
     expect(ui.notify).not.toHaveBeenCalledWith(expect.stringContaining("Failed to connect"), "error");
+  });
+
+  it("does not preserve stale cached resources after authoritative list-change removal", async () => {
+    const { initializeMcp, updateMetadataCache } = await import("../init.ts");
+
+    const state = await initializeMcp({ getFlag: vi.fn(() => undefined) } as any, {
+      cwd: tempDir,
+      hasUI: false,
+      mode: "headless",
+      signal: undefined,
+    } as any);
+
+    mocks.cache = {
+      version: 1,
+      servers: {
+        srv: {
+          configHash: "hash",
+          tools: [],
+          resources: [{ uri: "ui://old", name: "Old resource" }],
+          cachedAt: Date.now(),
+        },
+      },
+    };
+
+    updateMetadataCache(state, "srv");
+    expect((mocks.cache?.servers.srv as any).resources).toEqual([{ uri: "ui://old", name: "Old resource" }]);
+
+    updateMetadataCache(state, "srv", { preserveEmptyResources: false });
+    expect((mocks.cache?.servers.srv as any).resources).toEqual([]);
   });
 
   it("marks direct-tool metadata bootstrap spawns for health-check reconnects", async () => {

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Hot-loaded refreshed direct MCP tools after metadata reconnects, lazy connects, direct-tool panel changes, and MCP list-change notifications. Thanks Devin Bost (@devinbost) for PR #72.
 - Migrated the MCP client and interactive visualizer to the exact-pinned MCP SDK v2 beta.5 packages, with automatic protocol negotiation and client conformance coverage. Thanks Matt Carey (@mattzcarey) for PR #210.
 - Added disabled MCP server definitions plus `/mcp disable` and `/mcp enable` project-local overrides that preserve visibility while preventing execution. Thanks Ömer Ulusoy (@ulusoyomer) for PR #61.
 - Added argument completions for `/mcp` subcommands and reconnect/logout server names. Thanks @sting8k for PR #8.
@@ -22,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `createMcpAdapter({ config, configPath })` for isolated SDK configuration and file-path overrides. Thanks @Cansiny0320 for PR #86.
 
 ### Changed
+- Removed stale hot-loaded direct tools from Pi's registry when `pi.unregisterTool()` is available, while preserving active-tool deactivation fallback for older Pi hosts.
 - Deferred loading the regex safety checker until regex search is used, improving startup time. Thanks @kaushikgopal for PR #175.
 - Declared Pi host packages as optional peer dependencies with exact development pins, reducing extension install footprint and avoiding host version conflicts. Thanks @t0dorakis for PR #200.
 

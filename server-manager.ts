@@ -80,6 +80,7 @@ export interface ServerConnection {
 }
 
 type UiStreamListener = (serverName: string, notification: ServerStreamResultPatchNotification["params"]) => void;
+type MetadataListChangedListener = (serverName: string, reason: string) => void;
 
 export class McpServerManager {
   private connections = new Map<string, ServerConnection>();
@@ -87,6 +88,7 @@ export class McpServerManager {
   private reconnectPromises = new Map<string, Promise<ServerConnection>>();
   private uiStreamListeners = new Map<string, UiStreamListener>();
   private samplingConfig: ServerSamplingConfig | undefined;
+  private metadataListChangedListener: MetadataListChangedListener | undefined;
   private elicitationConfig: ServerElicitationConfig | undefined;
   private authStorageOptions: AuthStorageOptions = {};
   private oauthRuntime: McpOAuthRuntime | undefined;
@@ -103,6 +105,10 @@ export class McpServerManager {
 
   setSamplingConfig(config: ServerSamplingConfig | undefined): void {
     this.samplingConfig = config;
+  }
+
+  setMetadataListChangedListener(listener: MetadataListChangedListener | undefined): void {
+    this.metadataListChangedListener = listener;
   }
 
   setElicitationConfig(config: ServerElicitationConfig | undefined): void {
@@ -435,11 +441,24 @@ export class McpServerManager {
 
   private createClient(serverName: string): Client {
     const capabilities = this.buildClientCapabilities();
-    const client = new Client(
+    let client: Client;
+    client = new Client(
       { name: `pi-mcp-${serverName}`, version: "1.0.0" },
       {
         ...MCP_CLIENT_OPTIONS,
         ...(Object.keys(capabilities).length > 0 ? { capabilities } : {}),
+        listChanged: {
+          tools: {
+            onChanged: (error: Error | null, tools: McpTool[] | null) => {
+              this.handleToolsListChanged(serverName, client, error, tools);
+            },
+          },
+          resources: {
+            onChanged: (error: Error | null, resources: McpResource[] | null) => {
+              this.handleResourcesListChanged(serverName, client, error, resources);
+            },
+          },
+        },
       },
     );
     if (this.samplingConfig) {
@@ -464,6 +483,40 @@ export class McpServerManager {
       }
     }
     return client;
+  }
+
+  private handleToolsListChanged(
+    serverName: string,
+    client: Client,
+    error: Error | null,
+    tools: McpTool[] | null,
+  ): void {
+    if (error) {
+      logger.debug(`MCP: tools/list_changed refresh failed for ${serverName}: ${error.message}`);
+      return;
+    }
+    if (!tools) return;
+    const connection = this.connections.get(serverName);
+    if (!connection || connection.client !== client || connection.status !== "connected") return;
+    connection.tools = tools;
+    this.metadataListChangedListener?.(serverName, "tools-list-changed");
+  }
+
+  private handleResourcesListChanged(
+    serverName: string,
+    client: Client,
+    error: Error | null,
+    resources: McpResource[] | null,
+  ): void {
+    if (error) {
+      logger.debug(`MCP: resources/list_changed refresh failed for ${serverName}: ${error.message}`);
+      return;
+    }
+    if (!resources) return;
+    const connection = this.connections.get(serverName);
+    if (!connection || connection.client !== client || connection.status !== "connected") return;
+    connection.resources = resources;
+    this.metadataListChangedListener?.(serverName, "resources-list-changed");
   }
 
   async handleUrlElicitationRequired(

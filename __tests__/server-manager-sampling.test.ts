@@ -69,7 +69,7 @@ describe("McpServerManager sampling", () => {
     await manager.connect("demo", { command: "node", args: ["server.js"] });
 
     const client = mocks.clients[0];
-    expect(client.options).toEqual({
+    expect(client.options).toMatchObject({
       capabilities: { sampling: {} },
       versionNegotiation: { mode: "auto" },
       inputRequired: { autoFulfill: true },
@@ -91,7 +91,7 @@ describe("McpServerManager sampling", () => {
     await manager.connect("demo", { command: "node", args: ["server.js"] });
 
     const client = mocks.clients[0];
-    expect(client.options).toEqual({
+    expect(client.options).toMatchObject({
       capabilities: {
         elicitation: {
           form: {},
@@ -114,7 +114,7 @@ describe("McpServerManager sampling", () => {
 
     await manager.connect("demo", { command: "node", args: ["server.js"] });
 
-    expect(mocks.clients[0].options).toEqual({
+    expect(mocks.clients[0].options).toMatchObject({
       capabilities: { elicitation: { form: {} } },
       versionNegotiation: { mode: "auto" },
       inputRequired: { autoFulfill: true },
@@ -192,7 +192,7 @@ describe("McpServerManager sampling", () => {
 
     await manager.connect("demo", { command: "node", args: ["server.js"] });
 
-    expect(mocks.clients[0].options).toEqual({
+    expect(mocks.clients[0].options).toMatchObject({
       capabilities: {
         sampling: {},
         elicitation: {
@@ -213,11 +213,55 @@ describe("McpServerManager sampling", () => {
     await manager.connect("demo", { command: "node", args: ["server.js"] });
 
     const client = mocks.clients[0];
-    expect(client.options).toEqual({
+    expect(client.options).toMatchObject({
       versionNegotiation: { mode: "auto" },
       inputRequired: { autoFulfill: true },
     });
+    expect(client.options.listChanged.tools.onChanged).toBeTypeOf("function");
+    expect(client.options.listChanged.resources.onChanged).toBeTypeOf("function");
     expect(client.setRequestHandler).not.toHaveBeenCalled();
+  });
+
+  it("refreshes cached lists and ignores notifications from replaced clients", async () => {
+    const { McpServerManager } = await import("../server-manager.ts");
+    const manager = new McpServerManager();
+    const metadataChanged = vi.fn();
+    manager.setMetadataListChangedListener(metadataChanged);
+
+    await manager.connect("demo", { command: "node", args: ["server.js"] });
+    const oldClient = mocks.clients[0];
+    await manager.close("demo");
+    await manager.connect("demo", { command: "node", args: ["server.js"] });
+    const freshClient = mocks.clients[1];
+    const freshTools = [{ name: "fresh_tool", description: "Fresh tool" }];
+    const freshResources = [{ uri: "file://fresh", name: "Fresh resource" }];
+
+    oldClient.options.listChanged.tools.onChanged(null, [{ name: "stale_tool" }]);
+    oldClient.options.listChanged.resources.onChanged(null, [{ uri: "file://stale", name: "Stale resource" }]);
+    expect(manager.getConnection("demo")?.tools).toEqual([]);
+    expect(manager.getConnection("demo")?.resources).toEqual([]);
+    expect(metadataChanged).not.toHaveBeenCalled();
+
+    freshClient.options.listChanged.tools.onChanged(null, freshTools);
+    freshClient.options.listChanged.resources.onChanged(null, freshResources);
+    expect(manager.getConnection("demo")?.tools).toEqual(freshTools);
+    expect(manager.getConnection("demo")?.resources).toEqual(freshResources);
+    expect(metadataChanged).toHaveBeenCalledWith("demo", "tools-list-changed");
+    expect(metadataChanged).toHaveBeenCalledWith("demo", "resources-list-changed");
+  });
+
+  it("logs list-change callback errors without replacing cached metadata", async () => {
+    const { McpServerManager } = await import("../server-manager.ts");
+    const manager = new McpServerManager();
+    await manager.connect("demo", { command: "node", args: ["server.js"] });
+    const client = mocks.clients[0];
+    const error = new Error("refresh failed");
+
+    client.options.listChanged.tools.onChanged(error, null);
+    client.options.listChanged.resources.onChanged(error, null);
+
+    expect(manager.getConnection("demo")?.tools).toEqual([]);
+    expect(manager.getConnection("demo")?.resources).toEqual([]);
   });
 
   it("expands environment variables and tilde in stdio cwd", async () => {

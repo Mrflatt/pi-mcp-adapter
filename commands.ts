@@ -13,7 +13,7 @@ import {
   writeSharedServerEntry,
   writeStarterProjectConfig,
 } from "./config.ts";
-import { markKeepAliveAfterConnect, updateMetadataCache, updateStatusBar, getFailureAgeSeconds, getFailureMessage, clearFailure, recordFailure } from "./init.ts";
+import { markKeepAliveAfterConnect, notifyToolMetadataUpdated, updateMetadataCache, updateStatusBar, getFailureAgeSeconds, getFailureMessage, clearFailure, recordFailure } from "./init.ts";
 import { loadMetadataCache } from "./metadata-cache.ts";
 import { buildToolMetadata } from "./tool-metadata.ts";
 import { supportsOAuth, authenticate, removeAuth, type McpOAuthRuntime } from "./mcp-auth-flow.ts";
@@ -134,6 +134,7 @@ export async function reconnectServer(
       state.serverInstructions.delete(name);
     }
     updateMetadataCache(state, name);
+    notifyToolMetadataUpdated(state, name, "command-reconnect");
     markKeepAliveAfterConnect(state, name);
     clearFailure(state, name);
 
@@ -420,6 +421,7 @@ export async function openMcpPanel(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   configOverridePath?: string,
+  onDirectToolsConfigChanged?: (changes: Map<string, true | string[] | false>) => void | Promise<void>,
 ): Promise<PanelFlowResult> {
   if (state.programmaticConfig) {
     if (ctx.hasUI) {
@@ -447,13 +449,21 @@ export async function openMcpPanel(
     ctx.ui.custom(
       (tui, _theme, keybindings, done) => {
         return createMcpPanel(config, cache, provenanceMap, callbacks, tui, (result: McpPanelResult) => {
-          if (!result.cancelled && result.changes.size > 0) {
-            writeDirectToolsConfig(result.changes, provenanceMap, config);
+          void (async () => {
+            if (!result.cancelled && result.changes.size > 0) {
+              writeDirectToolsConfig(result.changes, provenanceMap, config);
+              await onDirectToolsConfigChanged?.(result.changes);
+              ctx.ui.notify("Direct tools updated for this session.", "info");
+            }
+            done(undefined);
+            resolve();
+          })().catch((error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            ctx.ui.notify(`Direct tools updated, but live refresh failed: ${message}`, "error");
             configChanged = true;
-            ctx.ui.notify("Direct tools updated. Pi will reload after this panel closes.", "info");
-          }
-          done(undefined);
-          resolve();
+            done(undefined);
+            resolve();
+          });
         }, { noticeLines, keybindings });
       },
       { overlay: true, overlayOptions: { anchor: "center", width: 82 } },

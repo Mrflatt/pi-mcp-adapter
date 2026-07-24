@@ -47,4 +47,5 @@ export interface McpExtensionState {
   openBrowser: (url: string) => Promise<void>;
   ui?: ExtensionContext["ui"];
   sendMessage?: SendMessageFn;
+  onToolMetadataUpdated?: (serverName: string, reason: string) => void | Promise<void>;
 }
