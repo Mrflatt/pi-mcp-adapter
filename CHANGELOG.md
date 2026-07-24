@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Declared Pi host packages as optional peer dependencies with exact development pins, reducing extension install footprint and avoiding host version conflicts. Thanks @t0dorakis for PR #200.
 
 ### Fixed
+- Started MCP initialization at extension load when any server is configured with `lifecycle: "eager"` or `"keep-alive"`, so hosts that drive Pi programmatically without `session_start` still connect startup servers. Thanks Brian Gebel (@ductiletoaster) for PR #170.
 - Enforced normalized standard `_meta.ui.csp` and OpenAI-compatible `_meta["openai/widgetCSP"]` metadata with response headers while preserving provider HTML. Thanks @IdoHadar for PR #195.
 - Avoided MCP renderer crashes without a TUI theme and preserved status-bar updates with plain fallback text. Thanks @fankangsong for PR #183.
 - Abandoned MCP initialization quietly when a session is disposed during eager or keep-alive connection setup. Thanks @luisfontes for PR #192.

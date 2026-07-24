@@ -716,6 +716,181 @@ describe("mcpAdapter session lifecycle", () => {
     expect(staleState.lifecycle.gracefulShutdown).toHaveBeenCalledTimes(1);
   });
 
+  it("initializes MCP at extension load when a server requests startup connection", async () => {
+    mocks.loadMcpConfig.mockReturnValue({
+      mcpServers: {
+        demo: { url: "http://localhost:3999/mcp", lifecycle: "eager" },
+      },
+    });
+    const state = createState();
+    mocks.initializeMcp.mockResolvedValue(state);
+    mocks.executeStatus.mockResolvedValue({ content: [{ type: "text", text: "ok" }] });
+
+    const { default: mcpAdapter } = await import("../index.ts");
+    const { api } = createPi();
+    mcpAdapter(api);
+
+    await new Promise((resolve) => setImmediate(resolve));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mocks.initializeMcp).toHaveBeenCalledTimes(1);
+    const loadCtx = mocks.initializeMcp.mock.calls[0][1];
+    expect(loadCtx.hasUI).toBe(false);
+    expect(loadCtx.mode).toBe("print");
+    expect(loadCtx.cwd).toBe(process.cwd());
+
+    const proxyTool = api.registerTool.mock.calls.find((call: any[]) => call[0].name === "mcp")?.[0];
+    expect(proxyTool).toBeDefined();
+
+    await proxyTool.execute("call-1", {});
+    expect(mocks.executeStatus).toHaveBeenCalledWith(state);
+  });
+
+  it("does not initialize at load when startup servers are absent or disabled", async () => {
+    mocks.loadMcpConfig.mockReturnValue({
+      mcpServers: {
+        lazy: { command: "npx", args: ["-y", "demo-server"] },
+        disabledEager: { url: "http://localhost:3999/mcp", lifecycle: "eager", disabled: true },
+      },
+    });
+
+    const { default: mcpAdapter } = await import("../index.ts");
+    const { api } = createPi();
+    mcpAdapter(api);
+
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(mocks.initializeMcp).not.toHaveBeenCalled();
+  });
+
+  it("lets session_start supersede an in-flight load-time init", async () => {
+    mocks.loadMcpConfig.mockReturnValue({
+      mcpServers: {
+        demo: { url: "http://localhost:3999/mcp", lifecycle: "keep-alive" },
+      },
+    });
+    const loadInit = createDeferred<any>();
+    const sessionInit = createDeferred<any>();
+    mocks.initializeMcp
+      .mockReturnValueOnce(loadInit.promise)
+      .mockReturnValueOnce(sessionInit.promise);
+
+    const { default: mcpAdapter } = await import("../index.ts");
+    const { api, handlers } = createPi();
+    mcpAdapter(api);
+
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(mocks.initializeMcp).toHaveBeenCalledTimes(1);
+    const loadRuntime = mocks.createOAuthRuntime.mock.results[0].value;
+
+    const sessionStart = handlers.get("session_start");
+    await sessionStart?.({}, { hasUI: false });
+    expect(mocks.initializeMcp).toHaveBeenCalledTimes(2);
+    expect(loadRuntime.signal.aborted).toBe(true);
+    expect(mocks.shutdownOAuth).toHaveBeenCalledWith(loadRuntime);
+
+    const sessionState = createState();
+    sessionInit.resolve(sessionState);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mocks.updateStatusBar).toHaveBeenCalledWith(sessionState);
+
+    const staleState = createState();
+    loadInit.resolve(staleState);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mocks.updateStatusBar).not.toHaveBeenCalledWith(staleState);
+    expect(mocks.flushMetadataCache).toHaveBeenCalledWith(staleState);
+    expect(staleState.lifecycle.gracefulShutdown).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips load-time initialization when session_start fires first", async () => {
+    mocks.loadMcpConfig.mockReturnValue({
+      mcpServers: {
+        demo: { url: "http://localhost:3999/mcp", lifecycle: "eager" },
+      },
+    });
+    const state = createState();
+    mocks.initializeMcp.mockResolvedValue(state);
+
+    const { default: mcpAdapter } = await import("../index.ts");
+    const { api, handlers } = createPi();
+    mcpAdapter(api);
+
+    const sessionStart = handlers.get("session_start");
+    await sessionStart?.({}, { hasUI: false });
+    await new Promise((resolve) => setImmediate(resolve));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mocks.initializeMcp).toHaveBeenCalledTimes(1);
+  });
+
+  it("shuts down an unresolved load-time initialization during session_shutdown", async () => {
+    mocks.loadMcpConfig.mockReturnValue({
+      mcpServers: {
+        demo: { url: "http://localhost:3999/mcp", lifecycle: "eager" },
+      },
+    });
+    const loadInit = createDeferred<any>();
+    mocks.initializeMcp.mockReturnValue(loadInit.promise);
+
+    const { default: mcpAdapter } = await import("../index.ts");
+    const { api, handlers } = createPi();
+    mcpAdapter(api);
+
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(mocks.initializeMcp).toHaveBeenCalledTimes(1);
+    const loadRuntime = mocks.createOAuthRuntime.mock.results[0].value;
+
+    const sessionShutdown = handlers.get("session_shutdown");
+    await sessionShutdown?.();
+    expect(loadRuntime.signal.aborted).toBe(true);
+    expect(mocks.shutdownOAuth).toHaveBeenCalledWith(loadRuntime);
+
+    const staleState = createState();
+    loadInit.resolve(staleState);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mocks.updateStatusBar).not.toHaveBeenCalledWith(staleState);
+    expect(mocks.flushMetadataCache).toHaveBeenCalledWith(staleState);
+    expect(staleState.lifecycle.gracefulShutdown).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds the proxy tool wait when initialization stalls", async () => {
+    mocks.loadMcpConfig.mockReturnValue({
+      mcpServers: {
+        demo: { url: "http://localhost:3999/mcp", lifecycle: "eager" },
+      },
+    });
+    const never = createDeferred<any>();
+    mocks.initializeMcp.mockReturnValue(never.promise);
+
+    const { default: mcpAdapter } = await import("../index.ts");
+    const { api } = createPi();
+    mcpAdapter(api);
+
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(mocks.initializeMcp).toHaveBeenCalledTimes(1);
+
+    vi.useFakeTimers();
+    try {
+      const proxyTool = api.registerTool.mock.calls.find((call: any[]) => call[0].name === "mcp")?.[0];
+      expect(proxyTool).toBeDefined();
+
+      const resultPromise = proxyTool.execute("call-1", { search: "demo" });
+      await vi.advanceTimersByTimeAsync(30_000);
+      const result = await resultPromise;
+
+      expect(result.details).toEqual({ error: "init_timeout", timeoutMs: 30_000 });
+      expect(mocks.executeSearch).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shuts down OAuth on session_shutdown", async () => {
     const state = createState();
     mocks.initializeMcp.mockResolvedValue(state);
