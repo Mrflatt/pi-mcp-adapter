@@ -9,6 +9,10 @@ import { isServerDisabled, type McpConfig, type ServerEntry, type McpSettings, t
 import { toStringRecord } from "./utils.ts";
 
 const GENERIC_GLOBAL_CONFIG_PATH = join(homedir(), ".config", "mcp", "mcp.json");
+const AGENTS_GLOBAL_CONFIG_PATHS = [
+  join(homedir(), ".agents", "mcp.json"),
+  join(homedir(), ".agents", "mcp", "mcp.json"),
+] as const;
 const PROJECT_CONFIG_NAME = ".mcp.json";
 const PROJECT_PI_CONFIG_NAME = ".pi/mcp.json";
 const REPOPROMPT_BINARY_CANDIDATES = [
@@ -37,7 +41,7 @@ const IMPORT_PATHS: Record<ImportKind, string[]> = {
 };
 
 interface ConfigSourceSpec {
-  id: "shared-global" | "pi-global" | "shared-project" | "pi-project";
+  id: "shared-global" | "agents-global" | "agents-nested-global" | "pi-global" | "shared-project" | "pi-project";
   label: string;
   readPath: string;
   writePath: string;
@@ -220,6 +224,20 @@ function getConfigSources(overridePath?: string, cwd = process.cwd()): ConfigSou
       writePath: userPath,
       kind: "import",
       importKind: "global MCP config",
+      shared: true,
+      scope: "global",
+    });
+  }
+
+  for (const [index, agentsPath] of AGENTS_GLOBAL_CONFIG_PATHS.entries()) {
+    if (agentsPath === userPath || agentsPath === GENERIC_GLOBAL_CONFIG_PATH) continue;
+    sources.push({
+      id: index === 0 ? "agents-global" : "agents-nested-global",
+      label: index === 0 ? "user-global .agents MCP" : "user-global .agents nested MCP",
+      readPath: agentsPath,
+      writePath: userPath,
+      kind: "import",
+      importKind: index === 0 ? ".agents MCP config" : ".agents/mcp MCP config",
       shared: true,
       scope: "global",
     });

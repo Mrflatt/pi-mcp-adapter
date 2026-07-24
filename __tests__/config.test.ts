@@ -78,6 +78,58 @@ describe("config discovery", () => {
     });
   });
 
+  it("loads tool-agnostic .agents global MCP files before Pi overrides", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-agents-home-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-mcp-agents-project-"));
+    process.env.HOME = home;
+    process.chdir(project);
+
+    writeJson(join(home, ".config", "mcp", "mcp.json"), {
+      mcpServers: {
+        shared: { command: "generic" },
+        genericOnly: { command: "generic-only" },
+      },
+    });
+    writeJson(join(home, ".agents", "mcp.json"), {
+      mcpServers: {
+        shared: { command: "agents-flat" },
+        agentsShared: { command: "agents-flat-shared" },
+        agentsFlatOnly: { command: "agents-flat-only" },
+      },
+    });
+    writeJson(join(home, ".agents", "mcp", "mcp.json"), {
+      mcpServers: {
+        shared: { command: "agents-nested" },
+        agentsShared: { command: "agents-nested-shared" },
+        agentsNestedOnly: { command: "agents-nested-only" },
+      },
+    });
+    writeJson(join(home, ".pi", "agent", "mcp.json"), {
+      mcpServers: {
+        shared: { command: "pi-global" },
+        piOnly: { command: "pi-only" },
+      },
+    });
+
+    const { loadMcpConfig, getMcpDiscoverySummary } = await import("../config.ts");
+
+    expect(loadMcpConfig().mcpServers).toMatchObject({
+      shared: { command: "pi-global" },
+      genericOnly: { command: "generic-only" },
+      agentsShared: { command: "agents-nested-shared" },
+      agentsFlatOnly: { command: "agents-flat-only" },
+      agentsNestedOnly: { command: "agents-nested-only" },
+      piOnly: { command: "pi-only" },
+    });
+    expect(getMcpDiscoverySummary().sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "shared-global", path: join(home, ".config", "mcp", "mcp.json"), serverCount: 2 }),
+        expect.objectContaining({ id: "agents-global", path: join(home, ".agents", "mcp.json"), serverCount: 3 }),
+        expect.objectContaining({ id: "agents-nested-global", path: join(home, ".agents", "mcp", "mcp.json"), serverCount: 3 }),
+      ]),
+    );
+  });
+
   it("loads JSONC MCP config files with comments and trailing commas", async () => {
     const home = mkdtempSync(join(tmpdir(), "pi-mcp-jsonc-home-"));
     const project = mkdtempSync(join(tmpdir(), "pi-mcp-jsonc-project-"));

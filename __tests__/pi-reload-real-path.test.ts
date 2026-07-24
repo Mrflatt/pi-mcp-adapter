@@ -131,10 +131,10 @@ describe("Pi registered extension reload real path", () => {
     const oldPids: number[] = [];
     try {
       await harness.session.reload();
-      await waitFor(async () => (await activeFixtures(harness.pidDir)).length === 1).catch(error => {
+      const firstActive = await waitForFixture(harness.pidDir, active => active.length === 1).catch(error => {
         throw new Error(`${error instanceof Error ? error.message : String(error)}; errors=${JSON.stringify(harness.errors)}; statuses=${JSON.stringify(harness.statusCalls)}`);
       });
-      oldPids.push((await activeFixtures(harness.pidDir))[0].pid);
+      oldPids.push(firstActive[0].pid);
 
       await harness.session.reload();
       const secondActive = await waitForFixture(harness.pidDir, active =>

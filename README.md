@@ -51,7 +51,7 @@ Preferred project config: `.mcp.json`
 }
 ```
 
-Preferred user-global shared config: `~/.config/mcp/mcp.json`
+Preferred user-global shared config: `~/.config/mcp/mcp.json`. Pi also reads the tool-agnostic global paths `~/.agents/mcp.json` and `~/.agents/mcp/mcp.json`.
 
 Pi also reads Pi-owned override files for settings and host-specific compatibility:
 
@@ -61,9 +61,11 @@ Pi also reads Pi-owned override files for settings and host-specific compatibili
 Precedence is:
 
 1. `~/.config/mcp/mcp.json`
-2. `<Pi agent dir>/mcp.json`
-3. `.mcp.json`
-4. `.pi/mcp.json`
+2. `~/.agents/mcp.json`
+3. `~/.agents/mcp/mcp.json`
+4. `<Pi agent dir>/mcp.json`
+5. `.mcp.json`
+6. `.pi/mcp.json`
 
 `/mcp disable <server>` and `/mcp enable <server>` persist only the `disabled` field in the project-local `.pi/mcp.json`, which is the highest-precedence Pi layer. Enabling removes the project flag when lower layers are enabled, or writes `false` when needed to override a disabled lower source. This applies even when the effective server came from a shared global/project file, an imported host config, or `configPath`; the source file is never rewritten and credentials are never copied. Run `/reload` after changing the flag so registered tool surfaces are refreshed. The manual equivalent is to add `{ "disabled": true }` to a server in any normal MCP config. Supplied in-memory `createMcpAdapter({ config })` configurations are isolated and do not read or write this project override; the commands are unavailable in that mode.
 
@@ -97,6 +99,8 @@ Use the shared MCP files when you want one setup to work across hosts, and Pi-ow
 | File | Purpose |
 |------|---------|
 | `~/.config/mcp/mcp.json` | User-global shared MCP config |
+| `~/.agents/mcp.json` | User-global tool-agnostic MCP config |
+| `~/.agents/mcp/mcp.json` | User-global tool-agnostic MCP config |
 | `.mcp.json` | Project-local shared MCP config |
 | `<Pi agent dir>/mcp.json` | Pi global override and compatibility imports (`~/.pi/agent/mcp.json` by default) |
 | `.pi/mcp.json` | Pi project override |
