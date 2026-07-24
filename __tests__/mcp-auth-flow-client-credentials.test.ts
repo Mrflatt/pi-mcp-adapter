@@ -282,7 +282,7 @@ describe("mcp-auth-flow explicit auth", () => {
     expect(getOAuthState("stale")).not.toBe("old-state");
   });
 
-  it("keeps same-name pending OAuth flows isolated by auth storage", async () => {
+  it("keeps same-name pending OAuth flows isolated while sharing secure-store credentials by server name", async () => {
     delete process.env.MCP_OAUTH_DIR;
     const projectA = mkdtempSync(join(tmpdir(), "pi-mcp-auth-flow-a-"));
     const projectB = mkdtempSync(join(tmpdir(), "pi-mcp-auth-flow-b-"));
@@ -318,7 +318,7 @@ describe("mcp-auth-flow explicit auth", () => {
 
     await completeAuthFromInput("shared", "code-b", { authStorageOptions: authStorageOptionsB, runtime: runtimeB });
 
-    expect(getAuthForUrl("shared", "https://api.example.com/mcp", authStorageOptionsA)?.tokens).toBeUndefined();
+    expect(getAuthForUrl("shared", "https://api.example.com/mcp", authStorageOptionsA)?.tokens?.accessToken).toBe("token-b");
     expect(getAuthForUrl("shared", "https://api.example.com/mcp", authStorageOptionsB)?.tokens?.accessToken).toBe("token-b");
     await shutdownOAuth(runtimeA);
     await shutdownOAuth(runtimeB);

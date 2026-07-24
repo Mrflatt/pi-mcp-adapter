@@ -20,7 +20,7 @@ The Pi MCP Adapter uses the official MCP SDK's built-in OAuth implementation, wh
 - ✅ **Auto-Discovery** - Discovers OAuth endpoints from server metadata
 - ✅ **Automatic Token Refresh** - SDK handles expired tokens automatically
 - ✅ **State Parameter Validation** - CSRF protection
-- ✅ **Secure Token Storage** - Stored in `~/.pi/agent/mcp-oauth/sha256-<server-hash>/tokens.json`
+- ✅ **Secure Token Storage** - Persistent OAuth entries are stored in the operating system credential store
 
 ## Configuration
 
@@ -224,36 +224,13 @@ A Node.js HTTP server runs on a loopback callback endpoint and handles the activ
 
 ## Token Storage
 
-Tokens are stored per-server in `~/.pi/agent/mcp-oauth/sha256-<server-hash>/tokens.json`. The hash is derived from the configured MCP server name, so any valid config key can be used without becoming a filesystem path component:
+Persistent OAuth entries are stored per configured server name in the operating system credential store, using macOS Keychain, Windows Credential Manager, or Linux Secret Service/libsecret through `@napi-rs/keyring`. The stored entry contains tokens, dynamic client information, legacy verifier/state fields when present, and the server URL binding.
 
-```json
-{
-  "tokens": {
-    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "refreshToken": "dGhpcyBpcyBhIHJlZnJlc2ggdG9rZW4...",
-    "expiresAt": 1709769600,
-    "scope": "read write"
-  },
-  "clientInfo": {
-    "clientId": "auto-registered-client-id",
-    "clientSecret": "auto-generated-secret",
-    "redirectUris": ["http://localhost:49152/callback"]
-  },
-  "serverUrl": "https://api.example.com/mcp"
-}
-```
+The adapter fails closed when the OS credential store is unavailable. On headless Linux, configure an unlocked Secret Service-compatible keyring before using persistent OAuth; the adapter does not silently fall back to plaintext token files.
 
-Example directory structure:
-```
-~/.pi/agent/mcp-oauth/
-├── sha256-<linear-server-name-hash>/
-│   └── tokens.json
-├── sha256-<github-server-name-hash>/
-│   └── tokens.json
-└── ...
-```
+Older versions stored plaintext entries at `~/.pi/agent/mcp-oauth/sha256-<server-hash>/tokens.json`, or under `settings.oauthDir` / `MCP_OAUTH_DIR`. On first read after upgrade, a valid legacy entry is imported into the OS credential store and the plaintext `tokens.json` file is removed. These directories are now legacy import locations, not persistent credential stores or isolation namespaces.
 
-The `serverUrl` field ensures credentials are invalidated if the server URL changes.
+The stored `serverUrl` field ensures credentials are invalidated if the server URL changes.
 
 ## Security Considerations
 
@@ -265,9 +242,9 @@ All OAuth flows use PKCE with the S256 method, preventing authorization code int
 
 A cryptographically secure random state parameter is generated for each flow and validated on callback.
 
-### File Permissions
+### OS Credential Store
 
-Token files (`tokens.json`) are created with `0o600` permissions and stored in hashed per-server directories with `0o700` permissions (readable only by owner).
+Persistent OAuth credentials are written to the OS credential store. Legacy plaintext files are read only for one-way migration and are removed after successful import.
 
 ### URL Validation
 
@@ -316,7 +293,7 @@ If the browser fails to open (e.g., in SSH sessions), the authorization URL will
 
 The OAuth implementation uses the following modules:
 
-- `mcp-auth.ts` - Auth storage and retrieval (hashed per-server `tokens.json` files)
+- `mcp-auth.ts` - Auth storage and retrieval through the OS credential store, with one-way legacy `tokens.json` import
 - `mcp-oauth-provider.ts` - SDK OAuthClientProvider implementation
 - `mcp-callback-server.ts` - Node.js HTTP callback server
 - `mcp-auth-flow.ts` - High-level auth flow using SDK transport

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { isAbsolute, join, relative } from "node:path";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { getAuthEntry, getAuthEntryFilePath, getAuthStorageOptions, saveAuthEntry } from "../mcp-auth.ts";
 
@@ -22,7 +22,7 @@ describe("mcp-auth storage paths", () => {
     rmSync(authDir, { recursive: true, force: true });
   });
 
-  it("stores arbitrary configured server names under safe hashed paths", () => {
+  it("keeps arbitrary configured server names under safe hashed legacy import paths", () => {
     const names = ["Cloudflare Workers", "сервер", "../escape", "@scope/name", ""];
 
     for (const [index, name] of names.entries()) {
@@ -35,7 +35,7 @@ describe("mcp-auth storage paths", () => {
       expect(rel.startsWith("..")).toBe(false);
       expect(isAbsolute(rel)).toBe(false);
       expect(rel).toMatch(/^sha256-[a-f0-9]{64}\/tokens\.json$/);
-      expect(existsSync(filePath)).toBe(true);
+      expect(existsSync(filePath)).toBe(false);
     }
 
     expect(existsSync(join(authDir, "..", "escape", "tokens.json"))).toBe(false);
@@ -45,20 +45,22 @@ describe("mcp-auth storage paths", () => {
     expect(() => getAuthEntryFilePath(undefined as unknown as string)).toThrow(/Invalid MCP server name/);
   });
 
-  it("uses configured oauthDir relative to the active cwd", () => {
+  it("uses configured oauthDir as the legacy import source", () => {
     delete process.env.MCP_OAUTH_DIR;
     const project = mkdtempSync(join(tmpdir(), "pi-mcp-auth-project-"));
     const options = getAuthStorageOptions(".pi/oauth", project);
-
-    saveAuthEntry("configured", { tokens: { accessToken: "token" } }, "https://example.com/mcp", options);
-
     const filePath = getAuthEntryFilePath("configured", options);
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, JSON.stringify({ tokens: { accessToken: "legacy-token" }, serverUrl: "https://example.com/mcp" }), "utf-8");
+
+    expect(getAuthEntry("configured", options)?.tokens?.accessToken).toBe("legacy-token");
     expect(filePath.startsWith(join(project, ".pi", "oauth"))).toBe(true);
-    expect(existsSync(filePath)).toBe(true);
+    expect(existsSync(filePath)).toBe(false);
+    expect(getAuthEntry("configured", options)?.tokens?.accessToken).toBe("legacy-token");
     rmSync(project, { recursive: true, force: true });
   });
 
-  it("keeps separate configured oauthDir values isolated in one process", () => {
+  it("does not use configured oauthDir values as secure-store namespaces", () => {
     delete process.env.MCP_OAUTH_DIR;
     const projectA = mkdtempSync(join(tmpdir(), "pi-mcp-auth-project-a-"));
     const projectB = mkdtempSync(join(tmpdir(), "pi-mcp-auth-project-b-"));
@@ -68,7 +70,7 @@ describe("mcp-auth storage paths", () => {
     saveAuthEntry("same-server", { tokens: { accessToken: "token-a" } }, "https://example.com/mcp", optionsA);
     saveAuthEntry("same-server", { tokens: { accessToken: "token-b" } }, "https://example.com/mcp", optionsB);
 
-    expect(getAuthEntry("same-server", optionsA)?.tokens?.accessToken).toBe("token-a");
+    expect(getAuthEntry("same-server", optionsA)?.tokens?.accessToken).toBe("token-b");
     expect(getAuthEntry("same-server", optionsB)?.tokens?.accessToken).toBe("token-b");
     rmSync(projectA, { recursive: true, force: true });
     rmSync(projectB, { recursive: true, force: true });

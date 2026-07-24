@@ -372,12 +372,14 @@ export interface McpSettings {
    */
   authRequiredMessage?: string;
   /**
-   * Override the default OAuth token storage directory.
+   * Legacy OAuth tokens.json import directory.
    * Relative paths are resolved from the project root (cwd).
-   * Takes precedence over the agent's mcp-oauth/ directory but
+   * Takes precedence over the agent's mcp-oauth/ legacy import directory but
    * can still be overridden by the MCP_OAUTH_DIR env variable.
    *
-   * Example: ".pi/mcp-oauth" stores tokens in <project>/.pi/mcp-oauth/
+   * Persistent OAuth credentials are stored in the operating system credential
+   * store, not this directory. Existing plaintext tokens.json files found here
+   * are imported once and removed.
    */
   oauthDir?: string;
 }
