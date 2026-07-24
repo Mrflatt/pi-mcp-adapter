@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moved persistent OAuth credentials from plaintext `tokens.json` files into the operating system credential store, with one-way legacy import and fail-closed behavior when secure storage is unavailable. Thanks Sam Atkins (@atkinsam) for issue #180.
 
 ### Fixed
+- Skipped `resources/list` for MCP servers that do not advertise the `resources` capability, matching the existing prompt discovery gate and silencing the SDK v2 debug line that tools-only servers printed on every connect. Thanks Aleksandr Davydenko (@kotuke) for PR #213.
 - Made the MCP footer show enabled configured servers as the primary count, with active connections as secondary state, so lazy servers no longer look broken before first use or after idle shutdown. Thanks blumlaut (@Blumlaut) for issue #93.
 - Show the actual proxied MCP server/tool name in `mcp` tool results. Thanks Finn (@finnvyrn) and @dillontkh for issue #68.
 - Removed the remaining TypeScript import cycles reported by `madge`. Thanks @av1155 for issue #101.
