@@ -16,8 +16,16 @@ import { createOAuthRuntime, shutdownOAuth } from "./mcp-auth-flow.ts";
 import { createMcpDirectToolCallRenderer, renderMcpProxyToolCall, renderMcpToolResult } from "./tool-result-renderer.ts";
 import { toolErrorOverride } from "./error-signal.ts";
 import { createMcpRuntimeOwner, createOwnedUi, isAbortError, type McpRuntimeOwner } from "./runtime-owner.ts";
+import { publishMcpStatusShutdown } from "./mcp-status.ts";
 
 export type { McpAdapterOptions } from "./types.ts";
+export {
+  MCP_STATUS_EVENT,
+  MCP_STATUS_SNAPSHOT_VERSION,
+  type McpServerRuntimeStatus,
+  type McpServerStatusSnapshot,
+  type McpStatusSnapshot,
+} from "./types.ts";
 
 const INIT_WAIT_TIMEOUT_MS = 30_000;
 const INIT_WAIT_TIMED_OUT: unique symbol = Symbol("init-wait-timed-out");
@@ -47,7 +55,12 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
   let lifecycleGeneration = 0;
 
   async function shutdownState(currentState: McpExtensionState | null, reason: string): Promise<void> {
-    if (!currentState) return;
+    if (!currentState) {
+      publishMcpStatusShutdown(pi.events);
+      return;
+    }
+
+    publishMcpStatusShutdown(currentState.statusEvents);
 
     if (currentState.uiServer) {
       currentState.uiServer.close(reason);
@@ -247,6 +260,7 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
         ? { configPath: earlyConfigPath, config: sessionConfig }
         : {}),
       oauthRuntime,
+      statusEvents: pi.events,
     });
     initPromise = promise;
 

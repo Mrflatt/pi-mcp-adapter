@@ -8,6 +8,7 @@ import type { UiResourceHandler } from "./ui-resource-handler.ts";
 import type { UiServerHandle } from "./ui-server.ts";
 import type { McpRuntimeOwner } from "./runtime-owner.ts";
 import type { McpOAuthRuntime } from "./mcp-auth-flow.ts";
+import type { McpStatusEventBus } from "./mcp-status.ts";
 
 export interface CompletedUiSession {
   serverName: string;
@@ -33,6 +34,8 @@ export interface McpExtensionState {
   manager: McpServerManager;
   lifecycle: McpLifecycleManager;
   toolMetadata: Map<string, ToolMetadata[]>;
+  /** Resource counts retained separately because tool metadata includes resource tools. */
+  resourceCounts: Map<string, number>;
   promptMetadata: Map<string, PromptMetadata[]>;
   /** Servers whose prompt inventory came from successful live discovery. */
   promptMetadataLive: Set<string>;
@@ -51,4 +54,5 @@ export interface McpExtensionState {
   ui?: ExtensionContext["ui"];
   sendMessage?: SendMessageFn;
   onToolMetadataUpdated?: (serverName: string, reason: string) => void | Promise<void>;
+  statusEvents?: McpStatusEventBus;
 }

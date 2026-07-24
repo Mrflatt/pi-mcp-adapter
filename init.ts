@@ -34,6 +34,7 @@ import {
   isAbortError,
   type McpRuntimeOwner,
 } from "./runtime-owner.ts";
+import { publishMcpStatusSnapshot } from "./mcp-status.ts";
 
 const FAILURE_BACKOFF_MS = 60 * 1000;
 const MAX_FAILURE_MESSAGE_CHARS = 8 * 1024;
@@ -63,9 +64,14 @@ export function recordFailure(state: McpExtensionState, serverName: string, mess
   state.failureTracker.set(serverName, failedAt);
   state.failureMessages?.set(serverName, message.slice(0, MAX_FAILURE_MESSAGE_CHARS));
   const timer = setTimeout(() => {
+    if (!state.owner.isActive()) {
+      getFailureExpiryTimers(state).delete(serverName);
+      return;
+    }
     if (state.failureTracker.get(serverName) === failedAt) {
       state.failureTracker.delete(serverName);
       state.failureMessages?.delete(serverName);
+      publishMcpStatusSnapshot(state);
     }
     getFailureExpiryTimers(state).delete(serverName);
   }, FAILURE_BACKOFF_MS);
@@ -77,7 +83,10 @@ export function isTuiMode(ctx: Pick<ExtensionContext, "hasUI" | "mode">): boolea
   return ctx.hasUI && ctx.mode === "tui";
 }
 
-type McpInitializationOptions = McpAdapterOptions & { oauthRuntime?: McpOAuthRuntime };
+type McpInitializationOptions = McpAdapterOptions & {
+  oauthRuntime?: McpOAuthRuntime;
+  statusEvents?: McpExtensionState["statusEvents"];
+};
 
 export async function initializeMcp(
   pi: ExtensionAPI,
@@ -131,6 +140,7 @@ export async function initializeMcp(
   }
   const lifecycle = new McpLifecycleManager(manager, (serverName) => hasPendingAuth(serverName, undefined, oauthRuntime));
   const toolMetadata = new Map<string, ToolMetadata[]>();
+  const resourceCounts = new Map<string, number>();
   const promptMetadata = new Map<string, PromptMetadata[]>();
   const promptMetadataLive = new Set<string>();
   const serverInstructions = new Map<string, string>();
@@ -143,6 +153,7 @@ export async function initializeMcp(
     manager,
     lifecycle,
     toolMetadata,
+    resourceCounts,
     promptMetadata,
     promptMetadataLive,
     serverInstructions,
@@ -166,6 +177,7 @@ export async function initializeMcp(
       if (!owner.isActive()) return;
       pi.sendMessage(message as unknown as Parameters<typeof pi.sendMessage>[0], options);
     },
+    statusEvents: options.statusEvents,
   };
   if (ownsOAuthRuntime) owner.addCleanup(() => shutdownOAuth(oauthRuntime));
   manager.setMetadataListChangedListener?.((serverName, reason) => {
@@ -189,6 +201,7 @@ export async function initializeMcp(
     if (allServerEntries.length > 0 && hasUI) {
       ui?.notify(`MCP: All ${allServerEntries.length} server(s) are disabled`, "info");
     }
+    publishMcpStatusSnapshot(state);
     return state;
   }
 
@@ -227,6 +240,9 @@ export async function initializeMcp(
     if (cachedEntry && isServerCacheValid(cachedEntry, definition)) {
       const metadata = reconstructToolMetadata(name, cachedEntry, prefix, definition);
       toolMetadata.set(name, metadata);
+      if (Array.isArray(cachedEntry.resources)) {
+        resourceCounts.set(name, cachedEntry.resources.length);
+      }
       if (cachedEntry.prompts?.length) {
         promptMetadata.set(name, reconstructPromptMetadata(name, cachedEntry.prompts ?? [], prefix));
       }
@@ -282,6 +298,7 @@ export async function initializeMcp(
 
     const { metadata, failedTools } = buildToolMetadata(connection.tools, connection.resources, definition, name, prefix);
     toolMetadata.set(name, metadata);
+    resourceCounts.set(name, connection.resources.length);
     if (!connection.promptDiscoveryFailed) {
       promptMetadata.set(name, reconstructPromptMetadata(name, connection.prompts ?? [], prefix));
       promptMetadataLive.add(name);
@@ -380,6 +397,7 @@ export async function initializeMcp(
 
   owner.throwIfInactive();
   lifecycle.startHealthChecks(runtimeSignal);
+  publishMcpStatusSnapshot(state);
 
   return state;
 }
@@ -400,6 +418,7 @@ export function updateServerMetadata(state: McpExtensionState, serverName: strin
   if (!definition) return;
   if (isServerDisabled(definition)) {
     state.toolMetadata.delete(serverName);
+    state.resourceCounts?.delete(serverName);
     state.promptMetadata?.delete(serverName);
     state.promptMetadataLive?.delete(serverName);
     state.serverInstructions.delete(serverName);
@@ -410,6 +429,7 @@ export function updateServerMetadata(state: McpExtensionState, serverName: strin
 
   const { metadata } = buildToolMetadata(connection.tools, connection.resources, definition, serverName, prefix);
   state.toolMetadata.set(serverName, metadata);
+  state.resourceCounts?.set(serverName, connection.resources.length);
   if (!connection.promptDiscoveryFailed) {
     state.promptMetadata?.set(serverName, reconstructPromptMetadata(serverName, connection.prompts ?? [], prefix));
     state.promptMetadataLive?.add(serverName);
@@ -488,6 +508,7 @@ export function flushMetadataCache(state: McpExtensionState): void {
 }
 
 export function updateStatusBar(state: McpExtensionState): void {
+  publishMcpStatusSnapshot(state);
   const ui = state.ui;
   if (!ui) return;
   const entries = Object.entries(state.config.mcpServers);
