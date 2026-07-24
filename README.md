@@ -195,6 +195,7 @@ In the configuration examples below, `30000` is illustrative only. If `requestTi
 | `includeTools` | `string[]` of tool names or glob patterns to expose (matches original names like `get_screenshot`, generated resource names like `read_figjam`, and prefixed names like `figma_get_screenshot`) |
 | `excludeTools` | `string[]` of tool names or glob patterns to hide (applied after `includeTools`) |
 | `debug` | Show server stderr (default: false) |
+| `trace` | Enable metadata-only JSONL protocol tracing for this server; payloads, prompts, tool arguments/results, authorization data, and URLs are never persisted |
 | `disabled` | Keep the server visible in config and status, but prevent connections, authentication, tools, and resource calls (only literal `true` disables it) |
 
 For pre-registered browser OAuth clients, set `oauth.redirectUri` to the exact callback registered with the provider, for example `"http://localhost:3118/callback"`. Dynamic clients normally omit it and use a lazy OS-assigned localhost callback port.
@@ -237,7 +238,13 @@ When any enabled server uses `eager` or `keep-alive`, initialization also starts
     "idleTimeout": 10,
     "requestTimeoutMs": 30000,
     "hostConfigDiscovery": "off",
-    "oauthDir": ".pi/mcp-oauth"
+    "oauthDir": ".pi/mcp-oauth",
+    "trace": {
+      "enabled": true,
+      "file": ".pi/mcp-traces/mcp.jsonl",
+      "maxBytes": 262144,
+      "maxEvents": 10000
+    }
   },
   "mcpServers": { }
 }
@@ -257,8 +264,9 @@ When any enabled server uses `eager` or `keep-alive`, initialization also starts
 | `samplingAutoApprove` | Skip sampling confirmation prompts. Required for sampling in non-UI sessions (default: false). |
 | `elicitation` | Allow MCP servers to request user input through Pi dialogs (default: true when Pi UI is available). |
 | `outputGuard` | Guard oversized MCP output: `true` (default), `false`, or `{ maxBytes, maxLines, detailsMaxBytes }`. See [Output Guard](#output-guard). |
+| `trace` | Opt-in metadata-only protocol tracing. Set `{ enabled: true }` globally or `trace: true` on a server. The per-session JSONL file defaults to `.pi/mcp-traces/`; `file`, `maxBytes` (default 262144), and `maxEvents` (default 10000) can be set. Raw MCP payloads, prompts, tool arguments/results, auth data, and URLs are never persisted. |
 
-Per-server `idleTimeout` and `requestTimeoutMs` override the global settings.
+Per-server `idleTimeout` and `requestTimeoutMs` override the global settings. `debug` remains stderr display and is unrelated to protocol tracing.
 
 ### Output Guard
 

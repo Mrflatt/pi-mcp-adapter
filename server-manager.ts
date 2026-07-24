@@ -16,6 +16,7 @@ import {
   type ServerDefinition,
   type ServerStreamResultPatchNotification,
   type Transport,
+  type McpTraceSettings,
 } from "./types.ts";
 import { SERVER_STREAM_RESULT_PATCH_METHOD, serverStreamResultPatchNotificationSchema } from "./types.ts";
 import { resolveNpxBinary } from "./npx-resolver.ts";
@@ -32,6 +33,14 @@ import {
 import { interpolateEnvRecord, resolveBearerToken, resolveConfigPath, resolveServerUrl } from "./utils.ts";
 import { abortable, throwIfAborted } from "./abort.ts";
 import { combineAbortSignals } from "./runtime-owner.ts";
+import {
+  createMcpTraceWriter,
+  isMcpTraceEnabled,
+  McpTraceWriter,
+  type McpTraceObserver,
+  traceTransportKind,
+  wrapTransportWithMcpTrace,
+} from "./mcp-trace.ts";
 
 const MAX_CAPTURED_STDERR_BYTES = 8 * 1024;
 const MAX_CAPTURED_STDERR_LINES = 3;
@@ -102,6 +111,8 @@ export class McpServerManager {
   private closePromises = new Map<string, Promise<void>>();
   private closeGenerations = new Map<string, number>();
   private connectAttempts = new Map<string, AbortController>();
+  private traceSettings: McpTraceSettings | undefined;
+  private traceWriter: McpTraceWriter | undefined;
   private stopped = false;
 
   /** Default cwd for stdio servers without an explicit config `cwd`. */
@@ -125,6 +136,10 @@ export class McpServerManager {
 
   setDefaultRequestTimeoutMs(timeoutMs: number | undefined): void {
     this.defaultRequestTimeoutMs = normalizeRequestTimeoutMs(timeoutMs);
+  }
+
+  setTraceConfig(settings: McpTraceSettings | undefined): void {
+    this.traceSettings = settings;
   }
 
   setAuthStorageOptions(options: AuthStorageOptions): void {
@@ -271,6 +286,14 @@ export class McpServerManager {
     throwIfAborted(signal);
     const client = this.createClient(name);
 
+    const tracingEnabled = isMcpTraceEnabled(definition, this.traceSettings);
+    const traceWriter = tracingEnabled
+      ? (this.traceWriter ??= createMcpTraceWriter(this.defaultCwd, this.traceSettings ?? {}))
+      : undefined;
+    const traceObserver: McpTraceObserver | undefined = traceWriter
+      ? { record: event => traceWriter.write(event) }
+      : undefined;
+
     let transport: Transport;
     let stderrTail: Buffer<ArrayBufferLike> = Buffer.alloc(0);
 
@@ -305,9 +328,14 @@ export class McpServerManager {
       transport = stdioTransport;
     } else if (definition.url) {
       // HTTP transport with fallback
-      transport = await this.createHttpTransport(definition, name, signal, requestSignal);
+      transport = await this.createHttpTransport(definition, name, signal, requestSignal, traceObserver);
     } else {
       throw new Error(`Server ${name} has no command or url`);
+    }
+
+    if (traceObserver) {
+      const traceTransportKindValue = traceTransportKind(definition, transport);
+      transport = wrapTransportWithMcpTrace(transport, name, traceTransportKindValue, traceObserver);
     }
 
     throwIfAborted(signal);
@@ -583,6 +611,7 @@ export class McpServerManager {
     serverName: string,
     signal?: AbortSignal,
     requestSignal?: AbortSignal,
+    traceObserver?: McpTraceObserver,
   ): Promise<Transport> {
     throwIfAborted(signal);
     const serverUrl = resolveServerUrl(definition)!;
@@ -625,6 +654,9 @@ export class McpServerManager {
       requestInit,
       authProvider,
     });
+    const probeTransport = traceObserver
+      ? wrapTransportWithMcpTrace(streamableTransport, serverName, "streamable-http", traceObserver)
+      : streamableTransport;
 
     const testClient = new Client(
       { name: "pi-mcp-probe", version: "2.1.2" },
@@ -634,7 +666,7 @@ export class McpServerManager {
     try {
       await this.connectClientWithAbort(
         testClient,
-        streamableTransport,
+        probeTransport,
         this.buildRequestOptions(definition, requestSignal),
         signal,
       );
@@ -661,7 +693,7 @@ export class McpServerManager {
       if (!probeCleanupAttempted) {
         probeCleanupAttempted = true;
         try {
-          await (abortCleanupPromises.get(streamableTransport) ?? testClient.close());
+          await (abortCleanupPromises.get(probeTransport) ?? testClient.close());
         } catch (cleanupError) {
           throw new AggregateError([error, cleanupError], "MCP HTTP probe cleanup failed");
         }
@@ -841,6 +873,7 @@ export class McpServerManager {
     const results = await Promise.allSettled([
       Promise.resolve().then(() => connection.client.close()),
       Promise.resolve().then(() => connection.transport.close()),
+      this.traceWriter?.flush() ?? Promise.resolve(),
     ]);
     const failures = results.flatMap(result => result.status === "rejected" ? [result.reason] : []);
     if (failures.length > 0) throw new AggregateError(failures, "MCP connection cleanup failed");
@@ -870,6 +903,7 @@ export class McpServerManager {
     this.acceptedUrlElicitations.clear();
     this.samplingConfig = undefined;
     this.elicitationConfig = undefined;
+    await this.traceWriter?.flush();
     if (failures.length > 0) throw new AggregateError(failures, "MCP manager cleanup failed");
   }
 

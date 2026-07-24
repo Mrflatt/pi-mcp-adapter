@@ -357,6 +357,8 @@ export interface ServerEntry {
   excludeTools?: string[];
   // Debug
   debug?: boolean;  // Show server stderr (default: false)
+  /** Enable metadata-only JSONL protocol tracing for this server. */
+  trace?: boolean;
   // Keep configuration visible without allowing connections or execution.
   disabled?: boolean;
 }
@@ -380,6 +382,17 @@ export interface McpOutputGuardSettings {
 export type ToolPrefix = "server" | "none" | "short" | "mcp";
 export type HostConfigDiscovery = "off" | "prompt" | "on";
 
+export interface McpTraceSettings {
+  /** Enable tracing for all servers unless a server sets trace to false. */
+  enabled?: boolean;
+  /** JSONL destination; relative paths are resolved from the session cwd. */
+  file?: string;
+  /** Maximum per-session trace file size in bytes. */
+  maxBytes?: number;
+  /** Maximum events retained in the per-session trace file. */
+  maxEvents?: number;
+}
+
 export interface McpSettings {
   toolPrefix?: ToolPrefix;
   /** Discover detected host-specific MCP configs only when explicitly enabled. */
@@ -399,6 +412,11 @@ export interface McpSettings {
    * the limits. Env kill switch: MCP_OUTPUT_GUARD=0.
    */
   outputGuard?: boolean | McpOutputGuardSettings;
+  /**
+   * Opt-in metadata-only MCP protocol tracing. Payloads, prompts, tool
+   * arguments/results, authorization data, and URLs are never persisted.
+   */
+  trace?: McpTraceSettings;
   /**
    * Message returned in tool results when a server needs (re-)authentication.
    * "${server}" is substituted with the server name. Defaults to a TUI

@@ -118,6 +118,7 @@ export async function initializeMcp(
   manager.setRuntimeSignal?.(owner.signal);
   manager.setOAuthRuntime?.(oauthRuntime);
   manager.setDefaultRequestTimeoutMs(config.settings?.requestTimeoutMs);
+  manager.setTraceConfig?.(config.settings?.trace);
   manager.setAuthStorageOptions(authStorageOptions);
   const samplingAutoApprove = config.settings?.samplingAutoApprove === true;
   if (config.settings?.sampling !== false && (hasUI || samplingAutoApprove)) {

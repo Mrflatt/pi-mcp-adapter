@@ -1,14 +1,20 @@
 import http from "node:http";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { McpServerManager } from "../server-manager.ts";
 
 const servers: http.Server[] = [];
+const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
   await Promise.all(servers.map(server => new Promise<void>((resolve, reject) => {
     server.close(error => error ? reject(error) : resolve());
   })));
+  await Promise.all(temporaryDirectories.map(directory => rm(directory, { recursive: true, force: true })));
   servers.length = 0;
+  temporaryDirectories.length = 0;
 });
 
 describe("McpServerManager StreamableHTTP transport", () => {
@@ -76,6 +82,9 @@ describe("McpServerManager StreamableHTTP transport", () => {
     if (!address || typeof address === "string") throw new Error("server did not bind to a TCP port");
 
     const manager = new McpServerManager();
+    const traceDirectory = await mkdtemp(join(tmpdir(), "pi-mcp-trace-"));
+    temporaryDirectories.push(traceDirectory);
+    manager.setTraceConfig({ enabled: true, file: join(traceDirectory, "mcp.jsonl") });
     try {
       const connection = await manager.connect("post-only", {
         url: `http://127.0.0.1:${address.port}/mcp`,
@@ -92,6 +101,13 @@ describe("McpServerManager StreamableHTTP transport", () => {
       // SDK v2 probes the optional GET stream once, then keeps the successful
       // POST-based session without an SSE fallback or retry storm.
       expect(requests.filter(request => request === "GET /mcp")).toHaveLength(1);
+
+      await manager.close("post-only");
+      const traceLines = (await readFile(join(traceDirectory, "mcp.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map(line => JSON.parse(line) as { direction: string; method?: string });
+      expect(traceLines.filter(event => event.direction === "outbound" && event.method === "initialize")).toHaveLength(2);
     } finally {
       await manager.close("post-only").catch(() => {});
     }

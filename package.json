@@ -98,6 +98,7 @@
     "mcp-auth-flow.ts",
     "mcp-panel.ts",
     "panel-keys.ts",
+    "mcp-trace.ts",
     "logger.ts",
     "errors.ts",
     "app-bridge.bundle.js",
