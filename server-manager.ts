@@ -12,6 +12,7 @@ import {
   isServerDisabled,
   type McpTool,
   type McpResource,
+  type McpPrompt,
   type ServerDefinition,
   type ServerStreamResultPatchNotification,
   type Transport,
@@ -73,6 +74,9 @@ export interface ServerConnection {
   definition: ServerDefinition;
   tools: McpTool[];
   resources: McpResource[];
+  prompts: McpPrompt[];
+  /** True when prompts were advertised but prompts/list failed. */
+  promptDiscoveryFailed?: boolean;
   instructions?: string;
   lastUsedAt: number;
   inFlight: number;
@@ -319,6 +323,7 @@ export class McpServerManager {
         definition,
         tools: [],
         resources: [],
+        prompts: [],
         instructions: client.getInstructions?.(),
         lastUsedAt: Date.now(),
         inFlight: 0,
@@ -341,13 +346,17 @@ export class McpServerManager {
         }
       };
 
-      // Discover tools and resources
-      const [tools, resources] = await Promise.all([
+      // Discover tools, resources, and prompts. Prompt listing is optional:
+      // only servers advertising the capability are queried.
+      const [tools, resources, promptResult] = await Promise.all([
         this.fetchAllTools(client, requestOptions),
         this.fetchAllResources(client, requestOptions),
+        this.fetchAllPrompts(client, requestOptions),
       ]);
       connection.tools = tools;
       connection.resources = resources;
+      connection.prompts = promptResult.prompts;
+      connection.promptDiscoveryFailed = promptResult.failed;
 
       return connection;
     } catch (error) {
@@ -376,6 +385,7 @@ export class McpServerManager {
           definition,
           tools: [],
           resources: [],
+          prompts: [],
           lastUsedAt: Date.now(),
           inFlight: 0,
           status: "needs-auth",
@@ -458,6 +468,11 @@ export class McpServerManager {
               this.handleResourcesListChanged(serverName, client, error, resources);
             },
           },
+          prompts: {
+            onChanged: (error: Error | null, prompts: McpPrompt[] | null) => {
+              this.handlePromptsListChanged(serverName, client, error, prompts);
+            },
+          },
         },
       },
     );
@@ -500,6 +515,24 @@ export class McpServerManager {
     if (!connection || connection.client !== client || connection.status !== "connected") return;
     connection.tools = tools;
     this.metadataListChangedListener?.(serverName, "tools-list-changed");
+  }
+
+  private handlePromptsListChanged(
+    serverName: string,
+    client: Client,
+    error: Error | null,
+    prompts: McpPrompt[] | null,
+  ): void {
+    if (error) {
+      logger.debug(`MCP: prompts/list_changed refresh failed for ${serverName}: ${error.message}`);
+      return;
+    }
+    if (!prompts) return;
+    const connection = this.connections.get(serverName);
+    if (!connection || connection.client !== client || connection.status !== "connected") return;
+    connection.prompts = prompts;
+    connection.promptDiscoveryFailed = false;
+    this.metadataListChangedListener?.(serverName, "prompts-list-changed");
   }
 
   private handleResourcesListChanged(
@@ -663,6 +696,30 @@ export class McpServerManager {
     return allTools;
   }
 
+  private async fetchAllPrompts(
+    client: Client,
+    requestOptions?: RequestOptions,
+  ): Promise<{ prompts: McpPrompt[]; failed: boolean }> {
+    const capabilities = client.getServerCapabilities?.();
+    if (!capabilities?.prompts) return { prompts: [], failed: false };
+
+    try {
+      const prompts: McpPrompt[] = [];
+      let cursor: string | undefined;
+      do {
+        const result = await client.listPrompts(cursor ? { cursor } : undefined, requestOptions);
+        prompts.push(...(result.prompts ?? []));
+        cursor = result.nextCursor;
+      } while (cursor);
+      return { prompts, failed: false };
+    } catch (error) {
+      if (requestOptions?.signal?.aborted) throwIfAborted(requestOptions.signal);
+      const message = error instanceof Error ? error.message : String(error);
+      logger.debug(`MCP: prompts/list failed: ${message}`);
+      return { prompts: [], failed: true };
+    }
+  }
+
   private async fetchAllResources(client: Client, requestOptions?: RequestOptions): Promise<McpResource[]> {
     try {
       const allResources: McpResource[] = [];
@@ -702,6 +759,29 @@ export class McpServerManager {
 
   removeUiStreamListener(streamToken: string): void {
     this.uiStreamListeners.delete(streamToken);
+  }
+
+  async getPrompt(
+    name: string,
+    promptName: string,
+    args?: Record<string, string>,
+    signal?: AbortSignal,
+  ): Promise<import("@modelcontextprotocol/client").GetPromptResult> {
+    const connection = this.connections.get(name);
+    if (!connection || connection.status !== "connected") {
+      throw new Error(`Server "${name}" is not connected`);
+    }
+    try {
+      this.touch(name);
+      this.incrementInFlight(name);
+      return await connection.client.getPrompt(
+        { name: promptName, ...(args ? { arguments: args } : {}) },
+        this.getRequestOptions(name, signal),
+      );
+    } finally {
+      this.decrementInFlight(name);
+      this.touch(name);
+    }
   }
 
   async readResource(name: string, uri: string, signal?: AbortSignal): Promise<ReadResourceResult> {

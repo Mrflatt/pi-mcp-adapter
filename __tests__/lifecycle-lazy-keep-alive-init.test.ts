@@ -28,11 +28,13 @@ vi.mock("../metadata-cache.ts", () => ({
   isServerCacheValid: vi.fn(() => false),
   loadMetadataCache: vi.fn(() => mocks.cache),
   reconstructToolMetadata: vi.fn(() => []),
+  reconstructPromptMetadata: vi.fn(() => []),
   saveMetadataCache: vi.fn((cache) => {
     mocks.cache = cache;
   }),
   serializeResources: vi.fn(() => []),
   serializeTools: vi.fn(() => []),
+  serializePrompts: vi.fn(() => []),
 }));
 
 vi.mock("../server-manager.ts", () => ({
