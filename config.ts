@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import stripJsonComments from "strip-json-comments";
 import { getAgentPath } from "./agent-dir.ts";
-import { isServerDisabled, type McpConfig, type ServerEntry, type McpSettings, type ImportKind, type ServerProvenance } from "./types.ts";
+import { isServerDisabled, type HostConfigDiscovery, type McpConfig, type ServerEntry, type McpSettings, type ImportKind, type ServerProvenance } from "./types.ts";
 import { toStringRecord } from "./utils.ts";
 
 const GENERIC_GLOBAL_CONFIG_PATH = join(homedir(), ".config", "mcp", "mcp.json");
@@ -73,6 +73,16 @@ export interface ImportConfigSummary extends DiscoveredImportConfig {
   serverCount: number;
 }
 
+export interface HostConfigSummary extends ImportConfigSummary {
+  active: boolean;
+}
+
+export interface McpConfigConflict {
+  serverName: string;
+  sources: Array<{ kind: "shared" | "pi" | "host"; path: string }>;
+  winner: { kind: "shared" | "pi" | "host"; path: string };
+}
+
 export interface RepoPromptDiscovery {
   configured: boolean;
   configuredPath?: string;
@@ -85,6 +95,9 @@ export interface RepoPromptDiscovery {
 export interface McpDiscoverySummary {
   sources: ConfigDiscoverySource[];
   imports: ImportConfigSummary[];
+  hostConfigs: HostConfigSummary[];
+  hostConfigDiscovery: HostConfigDiscovery;
+  conflicts: McpConfigConflict[];
   hasAnyConfig: boolean;
   hasAnyDetectedPaths: boolean;
   hasSharedServers: boolean;
@@ -141,7 +154,8 @@ export function findAvailableImportConfigs(cwd = process.cwd()): DiscoveredImpor
 }
 
 export function getMcpDiscoverySummary(overridePath?: string, cwd = process.cwd()): McpDiscoverySummary {
-  const sources = getConfigSources(overridePath, cwd).map((source) => {
+  const sourceSpecs = getConfigSources(overridePath, cwd);
+  const sources = sourceSpecs.map((source) => {
     const loaded = readValidatedConfig(source.readPath, `MCP config from ${source.readPath}`);
     return {
       id: source.id,
@@ -165,7 +179,8 @@ export function getMcpDiscoverySummary(overridePath?: string, cwd = process.cwd(
       } satisfies ImportConfigSummary;
     })
     .filter((value): value is ImportConfigSummary => value !== null);
-
+  const hostConfigDiscovery = getConfiguredHostConfigDiscovery(overridePath, cwd);
+  const hostConfigs = imports.map((entry) => ({ ...entry, active: hostConfigDiscovery === "on" }));
   const totalServerCount = sources.reduce((sum, source) => sum + source.serverCount, 0);
   const hasSharedServers = sources.some((source) => source.kind === "shared" && source.serverCount > 0);
   const hasPiOwnedServers = sources.some((source) => source.kind === "pi" && source.serverCount > 0);
@@ -175,6 +190,9 @@ export function getMcpDiscoverySummary(overridePath?: string, cwd = process.cwd(
   const summaryWithoutRepoPrompt = {
     sources,
     imports,
+    hostConfigs,
+    hostConfigDiscovery,
+    conflicts: getConfigConflicts(sourceSpecs, imports, cwd),
     hasAnyConfig,
     hasAnyDetectedPaths,
     hasSharedServers,
@@ -185,6 +203,8 @@ export function getMcpDiscoverySummary(overridePath?: string, cwd = process.cwd(
   const fingerprint = JSON.stringify({
     sources: sources.map((source) => [source.id, source.exists, source.serverCount]),
     imports: imports.map((entry) => [entry.kind, entry.path, entry.serverCount]),
+    hostConfigDiscovery,
+    conflicts: summaryWithoutRepoPrompt.conflicts,
   });
 
   return {
@@ -199,15 +219,91 @@ export function cloneMcpConfig(config: McpConfig): McpConfig {
 }
 
 export function loadMcpConfig(overridePath?: string, cwd = process.cwd()): McpConfig {
-  let config: McpConfig = { mcpServers: {} };
+  const sourceSpecs = getConfigSources(overridePath, cwd);
+  const hostConfigDiscovery = getConfiguredHostConfigDiscovery(overridePath, cwd);
+  // Host files are a lower-precedence fallback. This ordering means an opt-in
+  // discovery cannot override a shared or Pi-owned definition, and all normal
+  // URL-bound credential stripping remains in mergeServerMaps.
+  let config: McpConfig = hostConfigDiscovery === "on"
+    ? loadDiscoveredHostConfigs(cwd)
+    : { mcpServers: {} };
 
-  for (const source of getConfigSources(overridePath, cwd)) {
+  for (const source of sourceSpecs) {
     const loaded = readValidatedConfig(source.readPath, `MCP config from ${source.readPath}`);
     if (!loaded) continue;
     config = mergeConfigs(config, expandImports(loaded, cwd));
   }
 
   return config;
+}
+
+function getConfiguredHostConfigDiscovery(overridePath?: string, cwd = process.cwd()): HostConfigDiscovery {
+  let configured: HostConfigDiscovery = "off";
+  for (const source of getConfigSources(overridePath, cwd)) {
+    const loaded = readValidatedConfig(source.readPath, `MCP config from ${source.readPath}`);
+    const value = loaded?.settings?.hostConfigDiscovery;
+    if (value === "off" || value === "prompt" || value === "on") configured = value;
+  }
+  return configured;
+}
+
+function loadDiscoveredHostConfigs(cwd: string): McpConfig {
+  let config: McpConfig = { mcpServers: {} };
+  for (const importKind of Object.keys(IMPORT_PATHS) as ImportKind[]) {
+    const imported = loadImportedConfig(importKind, cwd, `Failed to discover imported MCP config from ${importKind}:`);
+    if (!imported) continue;
+    config = mergeConfigs(config, {
+      mcpServers: extractServers(imported.value, importKind),
+    });
+  }
+  return config;
+}
+
+function getConfigConflicts(
+  sourceSpecs: ConfigSourceSpec[],
+  imports: ImportConfigSummary[],
+  cwd: string,
+): McpConfigConflict[] {
+  const seen = new Map<string, Array<{ kind: "shared" | "pi" | "host"; path: string }>>();
+  const record = (name: string, source: { kind: "shared" | "pi" | "host"; path: string }): void => {
+    const entries = seen.get(name) ?? [];
+    if (!entries.some((entry) => entry.kind === source.kind && entry.path === source.path)) entries.push(source);
+    seen.set(name, entries);
+  };
+
+  // Host candidates are listed first because, when enabled, they are the
+  // lowest-precedence fallback. The fixed IMPORT_PATHS order is deterministic.
+  for (const entry of imports) {
+    const imported = loadImportedConfig(entry.kind, cwd, `Failed to inspect imported MCP config from ${entry.kind}:`);
+    if (!imported) continue;
+    for (const name of Object.keys(extractServers(imported.value, entry.kind))) {
+      record(name, { kind: "host", path: imported.path });
+    }
+  }
+  for (const source of sourceSpecs) {
+    const loaded = readValidatedConfig(source.readPath, `MCP config from ${source.readPath}`);
+    if (!loaded) continue;
+    if (loaded.imports?.length) {
+      for (const importKind of loaded.imports) {
+        const imported = loadImportedConfig(importKind, cwd, `Failed to inspect imported MCP config from ${importKind}:`);
+        if (!imported) continue;
+        for (const name of Object.keys(extractServers(imported.value, importKind))) {
+          record(name, { kind: "host", path: imported.path });
+        }
+      }
+    }
+    for (const name of Object.keys(loaded.mcpServers)) {
+      record(name, {
+        kind: source.shared ? "shared" : "pi",
+        path: source.readPath,
+      });
+    }
+  }
+
+  return [...seen.entries()]
+    .filter(([, sources]) => sources.length > 1)
+    .map(([serverName, sources]) => ({ serverName, sources, winner: sources[sources.length - 1]! }))
+    .sort((left, right) => left.serverName.localeCompare(right.serverName));
 }
 
 function getConfigSources(overridePath?: string, cwd = process.cwd()): ConfigSourceSpec[] {
@@ -925,6 +1021,18 @@ export function writeSharedServerEntry(filePath: string, serverName: string, ent
 export function getServerProvenance(overridePath?: string, cwd = process.cwd()): Map<string, ServerProvenance> {
   const provenance = new Map<string, ServerProvenance>();
   const userPath = getPiGlobalConfigPath(overridePath);
+
+  if (getConfiguredHostConfigDiscovery(overridePath, cwd) === "on") {
+    for (const importKind of Object.keys(IMPORT_PATHS) as ImportKind[]) {
+      const imported = loadImportedConfig(importKind, cwd, `Failed to inspect imported MCP config from ${importKind}:`);
+      if (!imported) continue;
+      for (const name of Object.keys(extractServers(imported.value, importKind))) {
+        // Keep writes inside Pi-owned storage even though the source is external.
+        // Later import kinds win in the same deterministic order as loadDiscoveredHostConfigs.
+        provenance.set(name, { path: userPath, kind: "import", importKind });
+      }
+    }
+  }
 
   for (const source of getConfigSources(overridePath, cwd)) {
     const loaded = readValidatedConfig(source.readPath, `MCP config from ${source.readPath}`);

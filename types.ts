@@ -378,9 +378,12 @@ export interface McpOutputGuardSettings {
 
 // Settings
 export type ToolPrefix = "server" | "none" | "short" | "mcp";
+export type HostConfigDiscovery = "off" | "prompt" | "on";
 
 export interface McpSettings {
   toolPrefix?: ToolPrefix;
+  /** Discover detected host-specific MCP configs only when explicitly enabled. */
+  hostConfigDiscovery?: HostConfigDiscovery;
   idleTimeout?: number; // minutes, default 10, 0 to disable
   requestTimeoutMs?: number; // milliseconds, overrides the SDK request timeout when > 0
   directTools?: boolean;

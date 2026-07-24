@@ -58,6 +58,8 @@ Pi also reads Pi-owned override files for settings and host-specific compatibili
 - `<Pi agent dir>/mcp.json` — Pi global override (`~/.pi/agent/mcp.json` by default)
 - `.pi/mcp.json` — Pi project override
 
+Host-specific configs are detected and shown by `/mcp setup` and `pi-mcp-adapter init`, but they are not loaded automatically. To explicitly opt in to host-config fallback discovery, set `settings.hostConfigDiscovery` to `"on"` or run `pi-mcp-adapter init --discover-host-configs`. The default is `"off"`; `"prompt"` is available for integrations that want detection without activation. Host configs are lower precedence than every shared and Pi-owned source, and `/mcp setup` continues to offer explicit import adoption. Discovery reports source paths, provenance, and same-name conflicts; it never writes to external host files or silently launches commands from them.
+
 Precedence is:
 
 1. `~/.config/mcp/mcp.json`
@@ -234,6 +236,7 @@ When any enabled server uses `eager` or `keep-alive`, initialization also starts
     "toolPrefix": "server",
     "idleTimeout": 10,
     "requestTimeoutMs": 30000,
+    "hostConfigDiscovery": "off",
     "oauthDir": ".pi/mcp-oauth"
   },
   "mcpServers": { }
@@ -245,6 +248,7 @@ When any enabled server uses `eager` or `keep-alive`, initialization also starts
 | `toolPrefix` | `"server"` (default), `"short"` (strips `-mcp` suffix), `"none"`, or `"mcp"` (prefixes with `mcp__`, using server-mode normalization) |
 | `idleTimeout` | Global idle timeout in minutes (default: 10, 0 to disable) |
 | `requestTimeoutMs` | Global request timeout in milliseconds for live MCP calls (if omitted or `<= 0`, the MCP SDK default timeout is used) |
+| `hostConfigDiscovery` | Host-specific config policy: `"off"` (default), `"prompt"` (detect/report only), or `"on"` (explicitly load detected host configs as the lowest-precedence fallback) |
 | `oauthDir` | Legacy OAuth `tokens.json` import directory for this MCP config. Relative paths resolve from the active project cwd. `MCP_OAUTH_DIR` still wins when set. Persistent OAuth credentials are stored in the OS credential store, not this directory. |
 | `directTools` | Global default for all servers (default: false). Per-server overrides this. |
 | `disableProxyTool` | Hide the `mcp` proxy tool once configured direct tools are fully available from cache. |

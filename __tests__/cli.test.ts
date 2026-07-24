@@ -77,6 +77,28 @@ describe("cli init helper", () => {
     expect(existsSync(join(home, ".pi", "agent", "mcp.json"))).toBe(false);
   });
 
+  it("explicitly enables host fallback discovery without changing external files", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-cli-discovery-home-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-mcp-cli-discovery-project-"));
+    process.env.HOME = home;
+    process.chdir(project);
+
+    const hostPath = join(home, ".cursor", "mcp.json");
+    writeJson(hostPath, { mcpServers: { cursorServer: { command: "cursor" } } });
+
+    const logs: string[] = [];
+    const errors: string[] = [];
+    const { main } = await import("../cli.js");
+    const exitCode = await main(["init", "--discover-host-configs"], (line) => logs.push(line), (line) => errors.push(line));
+
+    expect(exitCode).toBe(0);
+    expect(errors).toEqual([]);
+    const piConfigPath = join(home, ".pi", "agent", "mcp.json");
+    expect(JSON.parse(readFileSync(piConfigPath, "utf-8")).settings).toEqual({ hostConfigDiscovery: "on" });
+    expect(readFileSync(hostPath, "utf-8")).toContain("cursorServer");
+    expect(logs.join("\n")).toContain("Opting in to host-specific fallback discovery");
+  });
+
   it("writes detected host imports to PI_CODING_AGENT_DIR when set", async () => {
     const home = mkdtempSync(join(tmpdir(), "pi-mcp-cli-home-"));
     const agentDir = mkdtempSync(join(tmpdir(), "pi-mcp-cli-agent-"));

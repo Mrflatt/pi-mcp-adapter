@@ -33,6 +33,10 @@ const IMPORT_PATHS = {
     path.join(HOME, ".codex", "config.toml"),
     path.join(HOME, ".codex", "config.json"),
   ],
+  opencode: [
+    path.join(HOME, ".config", "opencode", "opencode.json"),
+    path.resolve(process.cwd(), "opencode.json"),
+  ],
   windsurf: [path.join(HOME, ".windsurf", "mcp.json")],
   vscode: [path.resolve(process.cwd(), ".vscode", "mcp.json")],
 };
@@ -44,6 +48,7 @@ function printHelp(log = console.log) {
   log("Then optionally run:");
   log("  pi-mcp-adapter init       Detect host configs and scaffold Pi imports");
   log("  pi-mcp-adapter init --dry-run");
+  log("  pi-mcp-adapter init --discover-host-configs  Opt in to host config fallback discovery");
 }
 
 function readJsonFile(filePath) {
@@ -118,6 +123,7 @@ function writePiConfig(config) {
 
 async function runInit(argv, log = console.log) {
   const dryRun = argv.includes("--dry-run");
+  const discoverHostConfigs = argv.includes("--discover-host-configs");
   const foundImports = findAvailableImports();
   const existingConfig = loadPiConfig();
   const existingImports = new Set(existingConfig.imports ?? []);
@@ -127,7 +133,8 @@ async function runInit(argv, log = console.log) {
 
   printDiscovery(log, foundImports);
 
-  if (importsToAdd.length === 0) {
+  const discoverySettingChanged = discoverHostConfigs && existingConfig.settings?.hostConfigDiscovery !== "on";
+  if (importsToAdd.length === 0 && !discoverySettingChanged) {
     log("\nNo Pi config changes needed.");
     log("Standard MCP configs are discovered automatically, and host-specific imports are already configured or unavailable.");
     return 0;
@@ -135,11 +142,17 @@ async function runInit(argv, log = console.log) {
 
   const nextConfig = {
     ...existingConfig,
-    imports: [...existingImports, ...importsToAdd],
+    ...(discoverySettingChanged ? { settings: { ...existingConfig.settings, hostConfigDiscovery: "on" } } : {}),
+    ...(importsToAdd.length > 0 ? { imports: [...existingImports, ...importsToAdd] } : {}),
     mcpServers: existingConfig.mcpServers ?? {},
   };
 
-  log(`\nDetected host configs to import into Pi: ${importsToAdd.join(", ")}`);
+  if (importsToAdd.length > 0) {
+    log(`\nDetected host configs to import into Pi: ${importsToAdd.join(", ")}`);
+  }
+  if (discoverySettingChanged) {
+    log("Opting in to host-specific fallback discovery (standard and Pi-owned configs still take precedence).");
+  }
 
   if (dryRun) {
     log(`Dry run: would update ${PI_CONFIG_PATH}`);
@@ -149,6 +162,9 @@ async function runInit(argv, log = console.log) {
   writePiConfig(nextConfig);
   log(`Updated ${PI_CONFIG_PATH}`);
   log("Pi will now keep reading standard MCP configs automatically, while these imports cover host-specific config formats.");
+  if (discoverySettingChanged) {
+    log("Host config discovery is explicit and does not write to or execute commands from external host files.");
+  }
   return 0;
 }
 

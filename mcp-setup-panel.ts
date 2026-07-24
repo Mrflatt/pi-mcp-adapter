@@ -442,13 +442,19 @@ export class McpSetupPanel {
   }
 
   private secondarySummaryLine(): string {
+    const hostNote = this.discovery.hostConfigs.length > 0
+      ? ` Host discovery is ${this.discovery.hostConfigDiscovery}; ${this.discovery.hostConfigs.length} host source${this.discovery.hostConfigs.length === 1 ? "" : "s"} detected.`
+      : "";
+    const conflictNote = this.discovery.conflicts.length > 0
+      ? ` ${this.discovery.conflicts.length} same-name conflict${this.discovery.conflicts.length === 1 ? "" : "s"} reported.`
+      : "";
     if (!this.discovery.hasAnyConfig) {
-      return "Create a shared `.mcp.json`, adopt host imports, or quick-add RepoPrompt from this screen.";
+      return `Create a shared .mcp.json, adopt host imports, or quick-add RepoPrompt from this screen.${hostNote}${conflictNote}`;
     }
     if (this.discovery.totalServerCount === 0 && this.discovery.imports.length > 0) {
-      return `Detected ${this.discovery.imports.length} compatibility import source${this.discovery.imports.length === 1 ? "" : "s"}. Adopt them into Pi or inspect the underlying files.`;
+      return `Detected ${this.discovery.imports.length} compatibility import source${this.discovery.imports.length === 1 ? "" : "s"}. Adopt them into Pi or inspect the underlying files.${hostNote}${conflictNote}`;
     }
-    return "Shared MCP files are preferred. Pi-owned files are only for compatibility imports and adapter-specific overrides.";
+    return `Shared MCP files are preferred. Pi-owned files are only for compatibility imports and adapter-specific overrides.${hostNote}${conflictNote}`;
   }
 
   private getActionPreview(action: ActionId): string[] {
@@ -483,11 +489,16 @@ export class McpSetupPanel {
       case "show-precedence":
         return this.formatPreview([
           "Read order:",
-          "1. ~/.config/mcp/mcp.json",
-          "2. <Pi agent dir>/mcp.json",
-          "3. .mcp.json",
-          "4. .pi/mcp.json",
-          "Pi writes compatibility imports and adapter-only overrides to Pi-owned files.",
+          "1. detected host configs (only when explicitly enabled)",
+          "2. ~/.config/mcp/mcp.json",
+          "3. <Pi agent dir>/mcp.json",
+          "4. .mcp.json",
+          "5. .pi/mcp.json",
+          `Host discovery: ${this.discovery.hostConfigDiscovery}. Conflicts reported: ${this.discovery.conflicts.length}.`,
+          ...this.discovery.conflicts.slice(0, 8).map((conflict) =>
+            `${conflict.serverName}: ${conflict.sources.map((source) => source.path).join(" -> ")} (winner: ${conflict.winner.path})`,
+          ),
+          "Pi writes compatibility imports and adapter-only overrides to Pi-owned files."
         ]);
       case "open-paths":
         return this.formatPreview(this.getDetectedPaths().length > 0

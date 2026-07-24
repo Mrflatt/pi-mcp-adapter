@@ -259,6 +259,109 @@ describe("config discovery", () => {
     );
   });
 
+  it("keeps host discovery opt-in and reports active sources, precedence, conflicts, and provenance", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-host-discovery-home-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-mcp-host-discovery-project-"));
+    process.env.HOME = home;
+    process.chdir(project);
+
+    writeJson(join(home, ".cursor", "mcp.json"), {
+      mcpServers: {
+        hostOnly: { command: "cursor-server" },
+        shared: {
+          url: "https://host.example/mcp",
+          headers: { Authorization: "Bearer host-secret" },
+        },
+      },
+    });
+    writeJson(join(home, ".config", "mcp", "mcp.json"), {
+      mcpServers: {
+        shared: { url: "https://shared.example/mcp" },
+      },
+    });
+
+    const { getMcpDiscoverySummary, getServerProvenance, loadMcpConfig } = await import("../config.ts");
+    expect(loadMcpConfig().mcpServers).toEqual({ shared: { url: "https://shared.example/mcp" } });
+    expect(getMcpDiscoverySummary().hostConfigs).toEqual([
+      expect.objectContaining({ kind: "cursor", active: false, serverCount: 2 }),
+    ]);
+
+    writeJson(join(home, ".pi", "agent", "mcp.json"), {
+      settings: { hostConfigDiscovery: "on" },
+      mcpServers: {},
+    });
+
+    const config = loadMcpConfig();
+    expect(config.mcpServers.hostOnly).toEqual({ command: "cursor-server" });
+    expect(config.mcpServers.shared).toEqual({ url: "https://shared.example/mcp" });
+    expect(getMcpDiscoverySummary().hostConfigs).toEqual([
+      expect.objectContaining({ kind: "cursor", active: true, serverCount: 2 }),
+    ]);
+    expect(getMcpDiscoverySummary().conflicts).toEqual([
+      expect.objectContaining({
+        serverName: "shared",
+        winner: { kind: "shared", path: join(home, ".config", "mcp", "mcp.json") },
+      }),
+    ]);
+    expect(getServerProvenance().get("hostOnly")).toEqual({
+      path: join(home, ".pi", "agent", "mcp.json"),
+      kind: "import",
+      importKind: "cursor",
+    });
+    expect(config.mcpServers.shared.headers).toBeUndefined();
+  });
+
+  it("reports the deterministic winning host provenance for same-name servers", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-host-collision-home-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-mcp-host-collision-project-"));
+    process.env.HOME = home;
+    process.chdir(project);
+
+    writeJson(join(home, ".cursor", "mcp.json"), {
+      mcpServers: { same: { command: "cursor-server" } },
+    });
+    writeJson(join(home, ".codex", "config.json"), {
+      mcp_servers: { same: { command: "codex-server" } },
+    });
+    writeJson(join(home, ".pi", "agent", "mcp.json"), {
+      settings: { hostConfigDiscovery: "on" },
+      mcpServers: {},
+    });
+
+    const { getServerProvenance, loadMcpConfig } = await import("../config.ts");
+    expect(loadMcpConfig().mcpServers.same).toEqual({ command: "codex-server" });
+    expect(getServerProvenance().get("same")).toEqual({
+      path: join(home, ".pi", "agent", "mcp.json"),
+      kind: "import",
+      importKind: "codex",
+    });
+  });
+
+  it("classifies project Pi overrides as Pi-owned conflict sources", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-project-pi-conflict-home-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-mcp-project-pi-conflict-project-"));
+    process.env.HOME = home;
+    process.chdir(project);
+
+    const sharedPath = join(home, ".config", "mcp", "mcp.json");
+    const projectPiPath = join(process.cwd(), ".pi", "mcp.json");
+    writeJson(sharedPath, { mcpServers: { same: { command: "shared-server" } } });
+    writeJson(projectPiPath, { mcpServers: { same: { command: "project-pi-server" } } });
+
+    const { getMcpDiscoverySummary, loadMcpConfig } = await import("../config.ts");
+    expect(loadMcpConfig().mcpServers.same).toEqual({ command: "project-pi-server" });
+    expect(getMcpDiscoverySummary().conflicts).toEqual([
+      {
+        serverName: "same",
+        sources: [
+          { kind: "shared", path: sharedPath },
+          { kind: "pi", path: projectPiPath },
+        ],
+        winner: { kind: "pi", path: projectPiPath },
+      },
+    ]);
+  });
+
   it("imports Codex MCP servers from config.toml", async () => {
     const home = mkdtempSync(join(tmpdir(), "pi-mcp-codex-toml-home-"));
     const project = mkdtempSync(join(tmpdir(), "pi-mcp-codex-toml-project-"));
