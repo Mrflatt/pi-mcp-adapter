@@ -501,7 +501,8 @@ export function updateStatusBar(state: McpExtensionState): void {
     const definition = state.config.mcpServers[name];
     return connection.status === "connected" && definition !== undefined && !isServerDisabled(definition);
   }).length;
-  let status = `🔌 MCP: ${connectedCount}/${enabledCount} servers`;
+  let status = `🔌 MCP: ${enabledCount} ${enabledCount === 1 ? "server" : "servers"} enabled`;
+  if (connectedCount > 0) status += ` (${connectedCount} connected)`;
   if (disabledCount > 0) status += ` (${disabledCount} disabled)`;
   ui.setStatus("mcp", ui.theme ? ui.theme.fg("accent", status) : status);
 }

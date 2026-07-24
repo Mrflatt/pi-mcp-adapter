@@ -10,13 +10,13 @@ function createState(ui: unknown) {
 }
 
 describe("updateStatusBar", () => {
-  it("updates a usable UI even when its theme is unavailable", () => {
+  it("shows enabled servers instead of active connections as the primary count", () => {
     const setStatus = vi.fn();
     const state = createState({ setStatus, theme: undefined });
 
     updateStatusBar(state);
 
-    expect(setStatus).toHaveBeenCalledWith("mcp", "🔌 MCP: 0/1 servers");
+    expect(setStatus).toHaveBeenCalledWith("mcp", "🔌 MCP: 1 server enabled");
   });
 
   it("does not count a needs-auth connection as connected", () => {
@@ -26,7 +26,17 @@ describe("updateStatusBar", () => {
 
     updateStatusBar(state);
 
-    expect(setStatus).toHaveBeenCalledWith("mcp", "🔌 MCP: 0/1 servers");
+    expect(setStatus).toHaveBeenCalledWith("mcp", "🔌 MCP: 1 server enabled");
+  });
+
+  it("shows connected servers as secondary state", () => {
+    const setStatus = vi.fn();
+    const state = createState({ setStatus, theme: undefined });
+    state.manager.getAllConnections.mockReturnValue(new Map([["demo", { status: "connected" }]]));
+
+    updateStatusBar(state);
+
+    expect(setStatus).toHaveBeenCalledWith("mcp", "🔌 MCP: 1 server enabled (1 connected)");
   });
 
   it("keeps themed status text when a theme is available", () => {
@@ -38,6 +48,6 @@ describe("updateStatusBar", () => {
 
     updateStatusBar(state);
 
-    expect(setStatus).toHaveBeenCalledWith("mcp", "styled:🔌 MCP: 0/1 servers");
+    expect(setStatus).toHaveBeenCalledWith("mcp", "styled:🔌 MCP: 1 server enabled");
   });
 });
