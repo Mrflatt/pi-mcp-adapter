@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.12.0] - 2026-07-24
+
 ### Added
 - Added MCP prompts support as Pi slash commands under the `mcp__<server>__<prompt>` namespace, with capability-gated discovery, cache-backed startup registration, argument validation, lazy dispatch, and `/mcp prompts` listing. Thanks to Egor Egorov (@ee92) for PR #203.
 - Hot-loaded refreshed direct MCP tools after metadata reconnects, lazy connects, direct-tool panel changes, and MCP list-change notifications. Thanks Devin Bost (@devinbost) for PR #72.
