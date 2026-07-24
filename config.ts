@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
+import stripJsonComments from "strip-json-comments";
 import { getAgentPath } from "./agent-dir.ts";
 import { isServerDisabled, type McpConfig, type ServerEntry, type McpSettings, type ImportKind, type ServerProvenance } from "./types.ts";
 import { toStringRecord } from "./utils.ts";
@@ -365,9 +366,13 @@ function resolveImportCandidates(importKind: ImportKind, cwd: string): string[] 
   });
 }
 
+function parseJsonConfig(raw: string): unknown {
+  return JSON.parse(stripJsonComments(raw, { trailingCommas: true }));
+}
+
 function readImportedConfig(path: string): unknown {
   const raw = readFileSync(path, "utf-8");
-  return path.endsWith(".toml") ? parseToml(raw) : JSON.parse(raw);
+  return path.endsWith(".toml") ? parseToml(raw) : parseJsonConfig(raw);
 }
 
 function loadImportedConfig(
@@ -417,7 +422,7 @@ function readValidatedConfig(path: string, label: string): McpConfig | null {
   if (!existsSync(path)) return null;
 
   try {
-    return validateConfig(JSON.parse(readFileSync(path, "utf-8")));
+    return validateConfig(parseJsonConfig(readFileSync(path, "utf-8")));
   } catch (error) {
     console.warn(`Failed to load ${label}:`, error);
     return null;
@@ -667,7 +672,7 @@ function readRawConfigObject(filePath: string): Record<string, unknown> {
   if (!existsSync(filePath)) return {};
 
   try {
-    const raw = JSON.parse(readFileSync(filePath, "utf-8"));
+    const raw = parseJsonConfig(readFileSync(filePath, "utf-8"));
     return raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
   } catch {
     return {};
@@ -714,7 +719,7 @@ export function writeProjectServerDisabledOverride(
   let raw: Record<string, unknown> = {};
   if (existsSync(filePath)) {
     try {
-      const parsed = JSON.parse(readFileSync(filePath, "utf-8"));
+      const parsed = parseJsonConfig(readFileSync(filePath, "utf-8"));
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
         throw new Error("root value must be an object");
       }

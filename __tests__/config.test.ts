@@ -78,6 +78,101 @@ describe("config discovery", () => {
     });
   });
 
+  it("loads JSONC MCP config files with comments and trailing commas", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-jsonc-home-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-mcp-jsonc-project-"));
+    process.env.HOME = home;
+    process.chdir(project);
+    const realProject = realpathSync(project);
+
+    mkdirSync(join(home, ".pi", "agent"), { recursive: true });
+    writeFileSync(
+      join(home, ".pi", "agent", "mcp.json"),
+      `{
+        // Import editor configs with documented servers.
+        "imports": ["vscode",],
+        "mcpServers": {
+          "global": {
+            "command": "global-server",
+          },
+        },
+      }`,
+      "utf-8",
+    );
+
+    mkdirSync(join(project, ".vscode"), { recursive: true });
+    writeFileSync(
+      join(project, ".vscode", "mcp.json"),
+      `{
+        "mcpServers": {
+          /* Common team server. */
+          "editor": {
+            "command": "editor-server",
+          },
+        },
+      }`,
+      "utf-8",
+    );
+
+    writeFileSync(
+      join(project, ".mcp.json"),
+      `{
+        "mcpServers": {
+          "project": {
+            "command": "project-server",
+          },
+        },
+      }`,
+      "utf-8",
+    );
+
+    const { loadMcpConfig, getMcpDiscoverySummary } = await import("../config.ts");
+
+    expect(loadMcpConfig().mcpServers).toMatchObject({
+      global: { command: "global-server" },
+      editor: { command: "editor-server" },
+      project: { command: "project-server" },
+    });
+    expect(getMcpDiscoverySummary().imports).toEqual([
+      expect.objectContaining({ kind: "vscode", path: resolve(realProject, ".vscode", "mcp.json"), serverCount: 1 }),
+    ]);
+  });
+
+  it("updates project Pi overrides that were hand-edited as JSONC", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-jsonc-write-home-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-mcp-jsonc-write-project-"));
+    process.env.HOME = home;
+    process.chdir(project);
+
+    mkdirSync(join(project, ".pi"), { recursive: true });
+    writeFileSync(
+      join(project, ".pi", "mcp.json"),
+      `{
+        // Keep this file easy to hand edit.
+        "mcp-servers": {
+          "server": {
+            "command": "original",
+          },
+        },
+      }`,
+      "utf-8",
+    );
+
+    const { writeProjectServerDisabledOverride } = await import("../config.ts");
+    expect(writeProjectServerDisabledOverride(undefined, project, "server", true)).toEqual({
+      path: join(project, ".pi", "mcp.json"),
+      changed: true,
+    });
+    expect(JSON.parse(readFileSync(join(project, ".pi", "mcp.json"), "utf-8"))).toEqual({
+      "mcp-servers": {
+        server: {
+          command: "original",
+          disabled: true,
+        },
+      },
+    });
+  });
+
   it("resolves configured oauthDir against the active project cwd", async () => {
     const project = mkdtempSync(join(tmpdir(), "pi-mcp-oauthdir-project-"));
     const absolute = mkdtempSync(join(tmpdir(), "pi-mcp-oauthdir-absolute-"));
