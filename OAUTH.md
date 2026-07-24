@@ -323,18 +323,15 @@ The OAuth implementation uses the following modules:
 
 ## SDK Integration
 
-The implementation uses these SDK exports:
+The implementation uses these MCP SDK v2 exports:
 
 ```typescript
 import {
   auth,
-  UnauthorizedError,
-  OAuthClientProvider,
-} from "@modelcontextprotocol/sdk/client/auth.js"
-
-import {
   StreamableHTTPClientTransport,
-} from "@modelcontextprotocol/sdk/client/streamableHttp.js"
+  UnauthorizedError,
+  type OAuthClientProvider,
+} from "@modelcontextprotocol/client"
 ```
 
 The `McpOAuthProvider` class implements `OAuthClientProvider` and is passed to `StreamableHTTPClientTransport`:

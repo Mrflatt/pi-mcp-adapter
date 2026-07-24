@@ -18,6 +18,9 @@
   },
   "license": "MIT",
   "author": "Nico Bailon",
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
     "pi-mcp-adapter": "cli.js"
   },
@@ -25,7 +28,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:oauth-provider": "node --import tsx --test mcp-oauth-provider.test.ts"
+    "test:oauth": "node --import tsx --test --test-concurrency=1 mcp-auth.test.ts mcp-auth-flow.test.ts mcp-callback-server.test.ts mcp-oauth-provider.test.ts",
+    "test:oauth-provider": "node --import tsx --test mcp-oauth-provider.test.ts",
+    "test:conformance": "bash conformance/run.sh"
   },
   "repository": {
     "type": "git",
@@ -100,8 +105,8 @@
     "LICENSE"
   ],
   "dependencies": {
+    "@modelcontextprotocol/client": "2.0.0-beta.5",
     "@modelcontextprotocol/ext-apps": "^1.2.2",
-    "@modelcontextprotocol/sdk": "^1.25.1",
     "cross-spawn": "^7.0.6",
     "open": "^10.2.0",
     "recheck": "^4.5.0",
@@ -129,6 +134,8 @@
     "@earendil-works/pi-ai": "0.74.2",
     "@earendil-works/pi-coding-agent": "0.79.10",
     "@earendil-works/pi-tui": "0.74.2",
+    "@modelcontextprotocol/conformance": "0.1.16",
+    "@modelcontextprotocol/server": "2.0.0-beta.5",
     "@types/bun": "^1.0.0",
     "@types/node": "^20.0.0",
     "@types/open": "^6.2.1",

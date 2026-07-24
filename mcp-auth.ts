@@ -20,6 +20,8 @@ export interface StoredTokens {
   refreshToken?: string;
   expiresAt?: number; // Unix timestamp in seconds
   scope?: string;
+  /** SEP-2352 authorization-server issuer stamp from the SDK */
+  issuer?: string;
 }
 
 /** OAuth client information from dynamic or static registration */
@@ -29,6 +31,16 @@ export interface StoredClientInfo {
   clientIdIssuedAt?: number;
   clientSecretExpiresAt?: number;
   redirectUris?: string[];
+  /** SEP-2352 authorization-server issuer stamp from the SDK */
+  issuer?: string;
+  /**
+   * True when this entry is a secretless SEP-2352 issuer stub persisted for a
+   * config-pre-registered client (written by the config-clientId path of
+   * saveClientInformation). Such a stub is only usable when paired with the
+   * config that supplies the client secret; it must never be served as
+   * standalone client information.
+   */
+  configPreRegistered?: boolean;
 }
 
 /** Complete auth entry for a server */

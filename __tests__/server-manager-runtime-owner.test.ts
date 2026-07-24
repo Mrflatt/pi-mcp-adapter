@@ -14,7 +14,8 @@ function gate() {
   return { promise, resolve };
 }
 
-vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
+vi.mock("@modelcontextprotocol/client", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   Client: vi.fn().mockImplementation(function (this: any) {
     this.setRequestHandler = vi.fn();
     this.setNotificationHandler = vi.fn();
@@ -27,15 +28,15 @@ vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
     this.close = vi.fn(async () => undefined);
     mocks.clients.push(this);
   }),
+  StreamableHTTPClientTransport: vi.fn(),
+  SSEClientTransport: vi.fn(),
 }));
-vi.mock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
+vi.mock("@modelcontextprotocol/client/stdio", () => ({
   StdioClientTransport: vi.fn().mockImplementation(function (this: any) {
     this.close = vi.fn(async () => undefined);
     mocks.transports.push(this);
   }),
 }));
-vi.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({ StreamableHTTPClientTransport: vi.fn() }));
-vi.mock("@modelcontextprotocol/sdk/client/sse.js", () => ({ SSEClientTransport: vi.fn() }));
 vi.mock("../npx-resolver.ts", () => ({
   resolveNpxBinary: vi.fn(async () => {
     await mocks.resolveGate?.promise;

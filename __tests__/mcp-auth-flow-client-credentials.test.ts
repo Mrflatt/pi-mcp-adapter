@@ -17,7 +17,8 @@ const mocks = vi.hoisted(() => ({
 
 class MockUnauthorizedError extends Error {}
 
-vi.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
+vi.mock("@modelcontextprotocol/client", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   auth: mocks.sdkAuth,
   extractWWWAuthenticateParams: (response: Response) => {
     const header = response.headers.get("www-authenticate") ?? "";
@@ -327,7 +328,7 @@ describe("mcp-auth-flow explicit auth", () => {
 
   it("preserves stored dynamic client info when tokens exist", async () => {
     mocks.sdkAuth.mockImplementationOnce(async (provider) => {
-      expect(await provider.clientInformation()).toEqual({ client_id: "stored-client", client_secret: "stored-secret" });
+      expect(await provider.clientInformation()).toEqual({ client_id: "stored-client", client_secret: "stored-secret", redirect_uris: ["http://localhost:19876/callback"] });
       await provider.redirectToAuthorization(new URL("https://auth.example.com/authorize"));
       return "REDIRECT";
     });
@@ -474,7 +475,7 @@ describe("mcp-auth-flow explicit auth", () => {
 
   it("refreshes expired tokens even when cached dynamic redirect URIs are stale", async () => {
     mocks.sdkAuth.mockImplementationOnce(async (provider) => {
-      expect(await provider.clientInformation()).toEqual({ client_id: "refresh-client", client_secret: "refresh-secret" });
+      expect(await provider.clientInformation()).toEqual({ client_id: "refresh-client", client_secret: "refresh-secret", redirect_uris: ["http://localhost:19876/callback"] });
       await provider.saveTokens({
         access_token: "new-access",
         token_type: "Bearer",

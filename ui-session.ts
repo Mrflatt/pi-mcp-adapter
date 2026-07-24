@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { UrlElicitationRequiredError, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { UrlElicitationRequiredError, type CallToolResult } from "@modelcontextprotocol/client";
 import type { McpExtensionState } from "./state.ts";
 import {
   extractUiPromptText,

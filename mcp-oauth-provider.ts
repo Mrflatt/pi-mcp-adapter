@@ -5,20 +5,22 @@
  * Handles OAuth client registration, token storage, and authorization redirection.
  */
 
-import type { AddClientAuthentication, OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js"
-import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
+import { UnauthorizedError } from "@modelcontextprotocol/client"
 import type {
+  AddClientAuthentication,
+  OAuthClientProvider,
   OAuthClientMetadata,
-  OAuthTokens,
-  OAuthClientInformation,
-  OAuthClientInformationFull,
-} from "@modelcontextprotocol/sdk/shared/auth.js"
+  OAuthDiscoveryState,
+  StoredOAuthClientInformation,
+  StoredOAuthTokens,
+} from "@modelcontextprotocol/client"
 import {
   getAuthForUrl,
   updateTokens,
   updateClientInfo,
   clearAllCredentials,
   clearClientInfo,
+  clearCodeVerifier,
   clearTokens,
   type AuthStorageOptions,
   type StoredTokens,
@@ -86,6 +88,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
   private active = true
   private flowClientInfo: StoredClientInfo | undefined
   private flowCodeVerifier: string | undefined
+  private flowDiscoveryState: OAuthDiscoveryState | undefined
   private flowState: string | undefined
 
   constructor(
@@ -159,12 +162,17 @@ export class McpOAuthProvider implements OAuthClientProvider {
    * Get client information (for pre-registered or dynamically registered clients).
    * Returns undefined if no client info exists or if the server URL has changed.
    */
-  async clientInformation(): Promise<OAuthClientInformation | undefined> {
+  async clientInformation(): Promise<StoredOAuthClientInformation | undefined> {
     // Check config first (pre-registered client)
     if (this.config.clientId) {
+      // Reuse a previously stamped issuer (SEP-2352) if the SDK re-saved
+      // this pre-registered client with one.
+      const stored = await getAuthForUrl(this.serverName, this.serverUrl, this.storageOptions)
+      const issuer = stored?.clientInfo?.clientId === this.config.clientId ? stored.clientInfo.issuer : undefined
       return {
         client_id: this.config.clientId,
         client_secret: this.config.clientSecret,
+        ...(issuer !== undefined ? { issuer } : {}),
       }
     }
 
@@ -172,13 +180,43 @@ export class McpOAuthProvider implements OAuthClientProvider {
     // another runtime writes the shared persistent entry for the same name.
     const clientInfo = this.flowClientInfo ?? (await getAuthForUrl(this.serverName, this.serverUrl, this.storageOptions))?.clientInfo
     if (clientInfo) {
+      // A stored SEP-2352 issuer stub for a config-pre-registered client
+      // (identified by the explicit marker, or by the legacy stub shape of
+      // {clientId, issuer} with no registration metadata) is only meaningful
+      // when the config supplies the matching client secret. Since we reach
+      // this branch only when config.clientId is absent, serving the stub
+      // would let a token refresh go out with a client_id but no secret,
+      // causing invalid_client and credential invalidation. Return undefined
+      // so callers treat this as "no client info".
+      const isConfigStub = clientInfo.configPreRegistered === true
+        || (clientInfo.clientSecret === undefined
+          && clientInfo.clientIdIssuedAt === undefined
+          && clientInfo.clientSecretExpiresAt === undefined
+          && clientInfo.redirectUris === undefined)
+      if (isConfigStub) {
+        return undefined
+      }
       // Check if client secret has expired
       if (clientInfo.clientSecretExpiresAt && clientInfo.clientSecretExpiresAt < Date.now() / 1000) {
         return undefined
       }
+      // Return all stored registration metadata so the SDK's SEP-2352 issuer
+      // stamp-and-resave (which round-trips clientInformation() back through
+      // saveClientInformation()) does not drop client_id_issued_at,
+      // client_secret_expires_at, or the registered redirect_uris.
       return {
         client_id: clientInfo.clientId,
         client_secret: clientInfo.clientSecret,
+        ...(clientInfo.clientIdIssuedAt !== undefined
+          ? { client_id_issued_at: clientInfo.clientIdIssuedAt }
+          : {}),
+        ...(clientInfo.clientSecretExpiresAt !== undefined
+          ? { client_secret_expires_at: clientInfo.clientSecretExpiresAt }
+          : {}),
+        ...(clientInfo.redirectUris !== undefined
+          ? { redirect_uris: clientInfo.redirectUris }
+          : {}),
+        ...(clientInfo.issuer !== undefined ? { issuer: clientInfo.issuer } : {}),
       }
     }
 
@@ -189,16 +227,32 @@ export class McpOAuthProvider implements OAuthClientProvider {
   /**
    * Save client information from dynamic registration.
    */
-  async saveClientInformation(info: OAuthClientInformationFull): Promise<void> {
-    const redirectUris = info.redirect_uris ?? (this.redirectUrl ? [this.redirectUrl] : undefined)
+  async saveClientInformation(info: StoredOAuthClientInformation): Promise<void> {
+    this.throwIfInactive()
+    // Pre-registered client from config: the SDK's SEP-2352 issuer stamp
+    // re-saves whatever clientInformation() returned. Persist only the
+    // issuer binding - never copy the config-supplied client secret into
+    // the on-disk auth store.
+    if (this.config.clientId && info.client_id === this.config.clientId) {
+      updateClientInfo(
+        this.serverName,
+        { clientId: info.client_id, issuer: info.issuer, configPreRegistered: true },
+        this.serverUrl,
+        this.storageOptions,
+      )
+      return
+    }
+
+    const redirectUris = ("redirect_uris" in info ? info.redirect_uris : undefined)
+      ?? (this.redirectUrl ? [this.redirectUrl] : undefined)
     const clientInfo: StoredClientInfo = {
       clientId: info.client_id,
       clientSecret: info.client_secret,
       clientIdIssuedAt: info.client_id_issued_at,
       clientSecretExpiresAt: info.client_secret_expires_at,
       redirectUris,
+      issuer: info.issuer,
     }
-    this.throwIfInactive()
     this.flowClientInfo = clientInfo
     updateClientInfo(this.serverName, clientInfo, this.serverUrl, this.storageOptions)
   }
@@ -207,7 +261,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
    * Get stored OAuth tokens.
    * Returns undefined if no tokens exist or if the server URL has changed.
    */
-  async tokens(): Promise<OAuthTokens | undefined> {
+  async tokens(): Promise<StoredOAuthTokens | undefined> {
     // Use getAuthForUrl to validate tokens are for the current server URL
     const entry = await getAuthForUrl(this.serverName, this.serverUrl, this.storageOptions)
     if (!entry?.tokens) return undefined
@@ -220,21 +274,31 @@ export class McpOAuthProvider implements OAuthClientProvider {
         ? Math.max(0, Math.floor(entry.tokens.expiresAt - Date.now() / 1000))
         : undefined,
       scope: entry.tokens.scope,
+      ...(entry.tokens.issuer !== undefined ? { issuer: entry.tokens.issuer } : {}),
     }
   }
 
   /**
    * Save OAuth tokens.
    */
-  async saveTokens(tokens: OAuthTokens): Promise<void> {
+  async saveTokens(tokens: StoredOAuthTokens): Promise<void> {
     const storedTokens: StoredTokens = {
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
-      expiresAt: tokens.expires_in ? Date.now() / 1000 + tokens.expires_in : undefined,
+      // Preserve expiry even when expires_in is 0 (e.g. the SDK re-saving an
+      // already-expired token) so expired tokens stay expired instead of
+      // being persisted as never-expiring.
+      expiresAt: tokens.expires_in !== undefined ? Date.now() / 1000 + tokens.expires_in : undefined,
       scope: tokens.scope,
+      issuer: tokens.issuer,
     }
     this.throwIfInactive()
     updateTokens(this.serverName, storedTokens, this.serverUrl, this.storageOptions)
+    // Discovery must survive the browser redirect so the callback can verify
+    // the authorization server that minted the code. Once token issuance
+    // succeeds, clear it so a later 401 re-reads PRM and can observe an
+    // authorization-server migration.
+    this.flowDiscoveryState = undefined
   }
 
   /**
@@ -285,6 +349,20 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   /**
+   * Persist discovery with the same durability as the PKCE verifier. SDK v2
+   * reads this on the callback leg to prevent authorization-code mix-up.
+   */
+  async saveDiscoveryState(state: OAuthDiscoveryState): Promise<void> {
+    this.throwIfInactive()
+    this.flowDiscoveryState = structuredClone(state)
+  }
+
+  async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
+    this.throwIfInactive()
+    return this.flowDiscoveryState ? structuredClone(this.flowDiscoveryState) : undefined
+  }
+
+  /**
    * Save the OAuth state parameter for CSRF protection.
    */
   async saveState(state: string): Promise<void> {
@@ -313,12 +391,13 @@ export class McpOAuthProvider implements OAuthClientProvider {
    * Invalidate credentials when authentication fails.
    * Clears tokens, client info, or all credentials based on the type.
    */
-  async invalidateCredentials(type: "all" | "client" | "tokens"): Promise<void> {
+  async invalidateCredentials(type: "all" | "client" | "tokens" | "verifier" | "discovery"): Promise<void> {
     this.throwIfInactive()
     switch (type) {
       case "all":
         this.flowClientInfo = undefined
         this.flowCodeVerifier = undefined
+        this.flowDiscoveryState = undefined
         this.flowState = undefined
         clearAllCredentials(this.serverName, this.storageOptions)
         break
@@ -328,6 +407,12 @@ export class McpOAuthProvider implements OAuthClientProvider {
         break
       case "tokens":
         clearTokens(this.serverName, this.storageOptions)
+        break
+      case "verifier":
+        clearCodeVerifier(this.serverName, this.storageOptions)
+        break
+      case "discovery":
+        this.flowDiscoveryState = undefined
         break
     }
   }

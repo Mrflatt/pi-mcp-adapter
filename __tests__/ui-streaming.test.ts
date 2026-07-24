@@ -198,13 +198,17 @@ describe("UI Streaming", () => {
         attachAdapterNotificationHandlers: (serverName: string, client: { setNotificationHandler: typeof client.setNotificationHandler }) => void;
       }).attachAdapterNotificationHandlers(serverName, client);
       expect(client.setNotificationHandler).toHaveBeenCalledOnce();
-      return client.setNotificationHandler.mock.calls[0][1] as (notification: {
+      const handler = client.setNotificationHandler.mock.calls[0][2] as (params: {
+        streamToken: string;
+        result: { content?: unknown[]; structuredContent?: Record<string, unknown> };
+      }) => void;
+      return (notification: {
         method: string;
         params: {
           streamToken: string;
           result: { content?: unknown[]; structuredContent?: Record<string, unknown> };
         };
-      }) => void;
+      }) => handler(notification.params);
     }
 
     it("routes notifications to the matching listener", () => {

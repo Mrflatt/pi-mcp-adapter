@@ -1,13 +1,5 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ElicitResultSchema,
-  ListResourcesRequestSchema,
-  ListToolsRequestSchema,
-  ReadResourceRequestSchema,
-  UrlElicitationRequiredError,
-} from "@modelcontextprotocol/sdk/types.js";
+import { Server, UrlElicitationRequiredError } from "@modelcontextprotocol/server";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 
 const server = new Server(
   { name: "elicitation-integration-server", version: "1.0.0" },
@@ -23,7 +15,7 @@ function urlRequiredError() {
   }]);
 }
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
+server.setRequestHandler("tools/list", async () => ({
   tools: [
     { name: "capabilities", inputSchema: { type: "object", properties: {} } },
     { name: "form", inputSchema: { type: "object", properties: {} } },
@@ -32,21 +24,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   ],
 }));
 
-server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+server.setRequestHandler("resources/list", async () => ({
   resources: [
     { name: "URL-required resource", uri: "test://url-required" },
     { name: "URL-required UI resource", uri: "ui://url-required" },
   ],
 }));
 
-server.setRequestHandler(ReadResourceRequestSchema, async request => {
+server.setRequestHandler("resources/read", async request => {
   if (request.params.uri === "test://url-required" || request.params.uri === "ui://url-required") {
     throw urlRequiredError();
   }
   return { contents: [] };
 });
 
-server.setRequestHandler(CallToolRequestSchema, async request => {
+server.setRequestHandler("tools/call", async request => {
   if (request.params.name === "capabilities") {
     return {
       content: [{ type: "text", text: JSON.stringify(server.getClientCapabilities()?.elicitation ?? null) }],
@@ -56,31 +48,25 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
   if (request.params.name === "url-required") throw urlRequiredError();
 
   if (request.params.name === "form") {
-    const result = await server.request({
-      method: "elicitation/create",
-      params: {
-        mode: "form",
-        message: "Provide a name",
-        requestedSchema: {
-          type: "object",
-          properties: { name: { type: "string", minLength: 1 } },
-          required: ["name"],
-        },
+    const result = await server.elicitInput({
+      mode: "form",
+      message: "Provide a name",
+      requestedSchema: {
+        type: "object",
+        properties: { name: { type: "string", minLength: 1 } },
+        required: ["name"],
       },
-    }, ElicitResultSchema);
+    });
     return { content: [{ type: "text", text: JSON.stringify(result) }] };
   }
 
   if (request.params.name === "url") {
-    const result = await server.request({
-      method: "elicitation/create",
-      params: {
-        mode: "url",
-        message: "Connect your account",
-        elicitationId: "requested-1",
-        url: "https://example.com/authorize",
-      },
-    }, ElicitResultSchema);
+    const result = await server.elicitInput({
+      mode: "url",
+      message: "Connect your account",
+      elicitationId: "requested-1",
+      url: "https://example.com/authorize",
+    });
     if (result.action === "accept") {
       for (const elicitationId of ["unknown", "requested-1", "requested-1"]) {
         await server.notification({

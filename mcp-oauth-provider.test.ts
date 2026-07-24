@@ -22,8 +22,8 @@ import {
   type McpOAuthConfig,
 } from "./mcp-oauth-provider.ts"
 import { getAuthForUrl, saveAuthEntry } from "./mcp-auth.ts"
-import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
-import type { OAuthClientInformationFull, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js"
+import { UnauthorizedError } from "@modelcontextprotocol/client"
+import type { OAuthClientInformationFull, OAuthTokens } from "@modelcontextprotocol/client"
 
 describe("McpOAuthProvider", () => {
   const serverName = "test-server"
@@ -201,6 +201,51 @@ describe("McpOAuthProvider", () => {
 
       const info = await provider.clientInformation()
       assert.strictEqual(info, undefined)
+    })
+
+    it("should not serve a config-pre-registered stub when no config clientId is present", async () => {
+      // Stub written by the config-clientId path of saveClientInformation
+      // (SEP-2352 stamp-and-resave): {clientId, issuer} with the marker.
+      const provider = createProvider()
+      saveAuthEntry(serverName, {
+        clientInfo: {
+          clientId: "config-client",
+          issuer: "https://auth.example.com",
+          configPreRegistered: true,
+        },
+        serverUrl,
+      }, serverUrl)
+
+      assert.strictEqual(await provider.clientInformation(), undefined)
+    })
+
+    it("should not serve a legacy unmarked {clientId, issuer} stub when no config clientId is present", async () => {
+      const provider = createProvider()
+      saveAuthEntry(serverName, {
+        clientInfo: {
+          clientId: "config-client",
+          issuer: "https://auth.example.com",
+        },
+        serverUrl,
+      }, serverUrl)
+
+      assert.strictEqual(await provider.clientInformation(), undefined)
+    })
+
+    it("should still serve a dynamically-registered public client (no secret) with registration metadata", async () => {
+      const provider = createProvider()
+      saveAuthEntry(serverName, {
+        clientInfo: {
+          clientId: "public-client",
+          clientIdIssuedAt: Math.floor(Date.now() / 1000),
+          redirectUris: ["http://localhost:19876/callback"],
+        },
+        serverUrl,
+      }, serverUrl)
+
+      const info = await provider.clientInformation()
+      assert.strictEqual(info?.client_id, "public-client")
+      assert.strictEqual(info?.client_secret, undefined)
     })
 
     it("should prefer config over stored", async () => {

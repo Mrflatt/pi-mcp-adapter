@@ -7,9 +7,10 @@
 import {
   auth as runSdkAuth,
   extractWWWAuthenticateParams,
+  IssuerMismatchError,
   UnauthorizedError,
-} from "@modelcontextprotocol/sdk/client/auth.js"
-import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js"
+  LATEST_PROTOCOL_VERSION,
+} from "@modelcontextprotocol/client"
 import open from "open"
 import { McpOAuthProvider, type McpOAuthConfig } from "./mcp-oauth-provider.ts"
 import {
@@ -458,11 +459,18 @@ function getSearchParamsFromInput(input: string): URLSearchParams | undefined {
   }
 }
 
+/** Authorization code plus the optional RFC 9207 `iss` callback parameter. */
+export interface AuthorizationCodeInput {
+  code: string
+  iss?: string
+}
+
 /**
- * Extract an OAuth authorization code from either a raw code, a query string,
- * or the full localhost redirect URL copied from the browser address bar.
+ * Extract an OAuth authorization code (and the RFC 9207 `iss` parameter, when
+ * present) from either a raw code, a query string, or the full localhost
+ * redirect URL copied from the browser address bar.
  */
-export function parseAuthorizationCodeInput(input: string, expectedState?: string): string {
+export function parseAuthorizationRedirectInput(input: string, expectedState?: string): AuthorizationCodeInput {
   const trimmed = input.trim()
   if (!trimmed) {
     throw new Error("Authorization code or redirect URL is required")
@@ -485,14 +493,25 @@ export function parseAuthorizationCodeInput(input: string, expectedState?: strin
     }
 
     const code = params.get("code")
-    if (code) return code
+    if (code) {
+      const iss = params.get("iss")
+      return { code, ...(iss !== null ? { iss } : {}) }
+    }
   }
 
   if (/^[A-Za-z0-9._~+/=-]+$/.test(trimmed)) {
-    return trimmed
+    return { code: trimmed }
   }
 
   throw new Error("Could not find an OAuth authorization code in the provided input")
+}
+
+/**
+ * Extract an OAuth authorization code from either a raw code, a query string,
+ * or the full localhost redirect URL copied from the browser address bar.
+ */
+export function parseAuthorizationCodeInput(input: string, expectedState?: string): string {
+  return parseAuthorizationRedirectInput(input, expectedState).code
 }
 
 /**
@@ -512,8 +531,8 @@ export async function completeAuthFromInput(
   const authStorageOptions = runtimeState.pendingAuths.get(key)?.authStorageOptions ?? fallbackAuthStorageOptions
   const oauthState = runtimeState.pendingAuthStates.get(key)
   throwIfAborted(signal)
-  const code = parseAuthorizationCodeInput(input, oauthState)
-  return completeAuth(serverName, code, options)
+  const parsed = parseAuthorizationRedirectInput(input, oauthState)
+  return completeAuth(serverName, parsed, options)
 }
 
 /**
@@ -521,11 +540,14 @@ export async function completeAuthFromInput(
  */
 export async function completeAuth(
   serverName: string,
-  authorizationCode: string,
+  authorizationCode: string | AuthorizationCodeInput,
   options: AuthenticateOptions = {},
 ): Promise<AuthStatus> {
   const runtime = getRuntime(options)
   const runtimeState = getRuntimeState(runtime)
+  const { code, iss } = typeof authorizationCode === "string"
+    ? { code: authorizationCode, iss: undefined }
+    : authorizationCode
   const fallbackAuthStorageOptions = options.authStorageOptions ?? {}
   const signal = combineAbortSignals(runtime.signal, options.signal)
   throwIfAborted(signal)
@@ -539,27 +561,46 @@ export async function completeAuth(
   const oauthState = runtimeState.pendingAuthStates.get(key)
   throwIfAborted(signal)
 
+  let keepPendingForRetry = false
+  let caughtError: unknown
   try {
     const result = await abortable(runSdkAuth(pendingAuth.authProvider, {
       serverUrl: pendingAuth.serverUrl,
-      authorizationCode,
+      authorizationCode: code,
+      ...(iss !== undefined ? { iss } : {}),
       ...pendingAuth.discovery,
     }), signal)
     throwIfAborted(signal)
     if (result !== "AUTHORIZED") {
       throw new UnauthorizedError("Failed to authorize")
     }
+    return "authenticated"
   } catch (error) {
-    try {
-      await clearPendingAuth(runtime, serverName, oauthState, authStorageOptions)
-    } catch (cleanupError) {
-      throw new AggregateError([error, cleanupError], "OAuth completion cleanup failed")
+    caughtError = error
+    // RFC 9207: the AS advertises authorization_response_iss_parameter_supported
+    // but no `iss` accompanied the pasted code (e.g. the user pasted only the
+    // raw code). Keep the pending flow alive so the user can re-paste the full
+    // redirect URL instead of restarting authentication from scratch.
+    if (iss === undefined && error instanceof IssuerMismatchError && error.kind === "authorization_response") {
+      keepPendingForRetry = true
+      throw new Error(
+        `The authorization server for ${serverName} requires the RFC 9207 "iss" parameter. ` +
+        "Paste the full redirect URL from the browser address bar (not just the authorization code).",
+      )
     }
     throw error
+  } finally {
+    if (!keepPendingForRetry) {
+      try {
+        await clearPendingAuth(runtime, serverName, oauthState, authStorageOptions)
+      } catch (cleanupError) {
+        if (caughtError !== undefined) {
+          throw new AggregateError([caughtError, cleanupError], "OAuth completion cleanup failed")
+        }
+        throw cleanupError
+      }
+    }
   }
-
-  await clearPendingAuth(runtime, serverName, oauthState, authStorageOptions)
-  return "authenticated"
 }
 
 /**
@@ -627,13 +668,13 @@ export async function authenticate(
       }
 
       // Wait for callback
-      const code = await abortable(callbackPromise, signal)
+      const callbackResult = await abortable(callbackPromise, signal)
 
       // The callback server accepted only the flow-local reserved state.
       throwIfAborted(signal)
 
       // Complete the auth
-      return await completeAuth(serverName, code, { ...options, signal, runtime })
+      return await completeAuth(serverName, callbackResult, { ...options, signal, runtime })
     } catch (error) {
       if (oauthState) cancelPendingCallback(oauthState)
       try {

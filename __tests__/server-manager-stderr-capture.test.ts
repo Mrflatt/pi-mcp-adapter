@@ -6,7 +6,8 @@ const mocks = vi.hoisted(() => ({
   connectImpl: null as null | ((transport: any) => Promise<void>),
 }));
 
-vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
+vi.mock("@modelcontextprotocol/client", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   Client: vi.fn().mockImplementation(function (this: any) {
     this.setRequestHandler = vi.fn();
     this.setNotificationHandler = vi.fn();
@@ -17,26 +18,20 @@ vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
     this.listResources = vi.fn(async () => ({ resources: [] }));
     this.close = vi.fn(async () => undefined);
   }),
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
-  StdioClientTransport: vi.fn().mockImplementation(function (this: any, options: any) {
-    this.options = options;
-    this.stderr = options?.stderr === "pipe" ? new PassThrough() : null;
-    this.close = vi.fn(async () => undefined);
-    mocks.transports.push(this);
-  }),
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
   StreamableHTTPClientTransport: vi.fn().mockImplementation(function (this: any) {
     this.close = vi.fn(async () => undefined);
     mocks.transports.push(this);
   }),
+  SSEClientTransport: vi.fn().mockImplementation(function (this: any) {
+    this.close = vi.fn(async () => undefined);
+    mocks.transports.push(this);
+  }),
 }));
 
-vi.mock("@modelcontextprotocol/sdk/client/sse.js", () => ({
-  SSEClientTransport: vi.fn().mockImplementation(function (this: any) {
+vi.mock("@modelcontextprotocol/client/stdio", () => ({
+  StdioClientTransport: vi.fn().mockImplementation(function (this: any, options: any) {
+    this.options = options;
+    this.stderr = options?.stderr === "pipe" ? new PassThrough() : null;
     this.close = vi.fn(async () => undefined);
     mocks.transports.push(this);
   }),

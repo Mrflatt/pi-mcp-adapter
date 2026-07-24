@@ -35,7 +35,8 @@ vi.mock("../init.ts", () => ({
   recordFailure: mocks.recordFailure,
 }));
 
-vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
+vi.mock("@modelcontextprotocol/client", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   Client: vi.fn().mockImplementation(function (this: any, info: unknown, options: unknown) {
     this.info = info;
     this.options = options;
@@ -56,29 +57,16 @@ vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
     this.close = vi.fn(async () => undefined);
     mocks.clients.push(this);
   }),
+  StreamableHTTPClientTransport: vi.fn(),
+  SSEClientTransport: vi.fn(),
 }));
 
-vi.mock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
+vi.mock("@modelcontextprotocol/client/stdio", () => ({
   StdioClientTransport: vi.fn().mockImplementation(function (this: any, options: unknown) {
     this.options = options;
     this.close = vi.fn(async () => undefined);
     mocks.transports.push(this);
   }),
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
-  StreamableHTTPClientTransport: vi.fn(),
-  StreamableHTTPError: class StreamableHTTPError extends Error {
-    code: number;
-    constructor(code: number, message: string) {
-      super(`Streamable HTTP error: ${message}`);
-      this.code = code;
-    }
-  },
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/sse.js", () => ({
-  SSEClientTransport: vi.fn(),
 }));
 
 vi.mock("../npx-resolver.ts", () => ({
@@ -227,7 +215,7 @@ describe("proxy auto auth", () => {
   });
 
   it("runs URL elicitations returned by proxy tool calls", async () => {
-    const { UrlElicitationRequiredError } = await import("@modelcontextprotocol/sdk/types.js");
+    const { UrlElicitationRequiredError } = await import("@modelcontextprotocol/client");
     const { executeCall } = await import("../proxy-modes.ts");
     const error = new UrlElicitationRequiredError([{
       mode: "url",
@@ -339,7 +327,6 @@ describe("proxy auto auth", () => {
         arguments: { q: "hello" },
         _meta: undefined,
       },
-      undefined,
       { timeout: 1234 },
     );
     expect(result.content[0].text).toContain("ok");
@@ -417,7 +404,6 @@ describe("proxy auto auth", () => {
     expect(manager.getRequestOptions).toHaveBeenCalledWith("demo", controller.signal);
     expect(connection.client.callTool).toHaveBeenCalledWith(
       { name: "search", arguments: {}, _meta: undefined },
-      undefined,
       requestOptions,
     );
     expect(result.details).toMatchObject({ error: "aborted", message: "request aborted" });
@@ -521,13 +507,11 @@ describe("proxy auto auth", () => {
     expect(client.callTool).toHaveBeenNthCalledWith(
       1,
       { name: "search", arguments: { q: "one" }, _meta: undefined },
-      undefined,
       { timeout: 5000 },
     );
     expect(client.callTool).toHaveBeenNthCalledWith(
       2,
       { name: "search", arguments: { q: "two" }, _meta: undefined },
-      undefined,
       { timeout: 5000 },
     );
     expect(first.content[0].text).toContain("ok");
