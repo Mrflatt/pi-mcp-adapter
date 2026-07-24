@@ -174,7 +174,7 @@ In the configuration examples below, `30000` is illustrative only. If `requestTi
 | `requestTimeoutMs` | Request timeout in milliseconds for live MCP calls (overrides global; if omitted or `<= 0`, the MCP SDK default timeout is used) |
 | `exposeResources` | Expose MCP resources as tools (default: true) |
 | `directTools` | `true`, `string[]`, or `false` — register tools individually instead of through proxy |
-| `includeTools` | `string[]` of tool names or glob patterns to expose (matches original names like `get_screenshot` and prefixed names like `figma_get_screenshot`) |
+| `includeTools` | `string[]` of tool names or glob patterns to expose (matches original names like `get_screenshot`, generated resource names like `read_figjam`, and prefixed names like `figma_get_screenshot`) |
 | `excludeTools` | `string[]` of tool names or glob patterns to hide (applied after `includeTools`) |
 | `debug` | Show server stderr (default: false) |
 | `disabled` | Keep the server visible in config and status, but prevent connections, authentication, tools, and resource calls (only literal `true` disables it) |
@@ -328,7 +328,7 @@ To set a global default for all servers:
 
 Per-server `directTools` overrides the global setting. The example above registers direct tools for every server except `huge-server`.
 
-To expose only a subset of a noisy server, add `includeTools` on the server. Values can be exact original names, prefixed names, or simple glob patterns:
+To expose only a subset of a noisy server, add `includeTools` on the server. Values can be exact original names, generated resource names such as `read_<resource>`, prefixed names, or simple glob patterns:
 
 ```json
 {
@@ -350,7 +350,7 @@ To hide specific tools while still using `directTools: true`, add `excludeTools`
     "figma": {
       "url": "http://localhost:3845/mcp",
       "directTools": true,
-      "excludeTools": ["get_figjam", "figma_get_code_connect_map"]
+      "excludeTools": ["read_figjam", "figma_get_code_connect_map"]
     }
   }
 }

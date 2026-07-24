@@ -214,7 +214,7 @@ class McpPanel {
         }
         if (definition.exposeResources !== false) {
           for (const resource of serverCache.resources ?? []) {
-            const baseName = `get_${resourceNameToToolName(resource.name)}`;
+            const baseName = `read_${resourceNameToToolName(resource.name)}`;
             if (!isToolAllowed(baseName, serverName, this.prefix, definition.includeTools, definition.excludeTools)) {
               continue;
             }
@@ -647,7 +647,7 @@ class McpPanel {
 
     if (server.exposeResources) {
       for (const resource of entry.resources ?? []) {
-        const baseName = `get_${resourceNameToToolName(resource.name)}`;
+        const baseName = `read_${resourceNameToToolName(resource.name)}`;
         if (!isToolAllowed(baseName, server.name, this.prefix, server.includeTools, server.excludeTools)) {
           continue;
         }

@@ -49,7 +49,7 @@ export function buildToolMetadata(
 
   if (definition.exposeResources !== false) {
     for (const resource of resources) {
-      const baseName = `get_${resourceNameToToolName(resource.name)}`;
+      const baseName = `read_${resourceNameToToolName(resource.name)}`;
       if (!isToolAllowed(baseName, serverName, prefix, definition.includeTools, definition.excludeTools)) {
         continue;
       }

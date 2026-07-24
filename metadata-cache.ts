@@ -174,7 +174,7 @@ export function reconstructToolMetadata(
   if (definition.exposeResources !== false) {
     for (const resource of entry.resources ?? []) {
       if (!resource?.name || !resource?.uri) continue;
-      const baseName = `get_${resourceNameToToolName(resource.name)}`;
+      const baseName = `read_${resourceNameToToolName(resource.name)}`;
       if (!isToolAllowed(baseName, serverName, prefix, definition.includeTools, definition.excludeTools)) {
         continue;
       }

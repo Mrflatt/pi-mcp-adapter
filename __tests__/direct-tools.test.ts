@@ -80,7 +80,7 @@ describe("buildProxyDescription", () => {
         figma: {
           command: "npx",
           args: ["-y", "figma"],
-          excludeTools: ["get_figjam", "figma_get_screenshot"],
+          excludeTools: ["read_figjam", "figma_get_screenshot"],
         },
       },
     };
@@ -313,7 +313,7 @@ describe("excludeTools filtering", () => {
     const definition = {
       command: "npx",
       args: ["-y", "figma"],
-      excludeTools: ["figma_get_screenshot", "get_figjam"],
+      excludeTools: ["figma_get_screenshot", "read_figjam"],
     };
 
     const { metadata } = buildToolMetadata(
@@ -353,7 +353,7 @@ describe("excludeTools filtering", () => {
     const definition = {
       command: "npx",
       args: ["-y", "figma"],
-      includeTools: ["get_node*", "figma_get_figjam"],
+      includeTools: ["get_node*", "figma_read_figjam"],
       excludeTools: ["get_nodes_secret"],
     };
 
@@ -366,7 +366,7 @@ describe("excludeTools filtering", () => {
 
     const { metadata } = buildToolMetadata(tools as any, resources as any, definition, "figma", "server");
 
-    expect(metadata.map((tool) => tool.name)).toEqual(["figma_get_nodes", "figma_get_figjam"]);
+    expect(metadata.map((tool) => tool.name)).toEqual(["figma_get_nodes", "figma_read_figjam"]);
 
     const reconstructed = reconstructToolMetadata(
       "figma",
@@ -380,7 +380,7 @@ describe("excludeTools filtering", () => {
       definition,
     );
 
-    expect(reconstructed.map((tool) => tool.name)).toEqual(["figma_get_nodes", "figma_get_figjam"]);
+    expect(reconstructed.map((tool) => tool.name)).toEqual(["figma_get_nodes", "figma_read_figjam"]);
   });
 
   it("sanitizes registered names while preserving raw MCP names", () => {
@@ -405,7 +405,7 @@ describe("excludeTools filtering", () => {
       [
         { name: "namespace.tool", description: "Dotted" },
         { name: "namespace_tool", description: "Underscored" },
-        { name: "get_namespace.tool", description: "Tool before colliding resource" },
+        { name: "read_namespace.tool", description: "Tool before colliding resource" },
       ] as any,
       [{ name: "namespace.tool", uri: "ui://namespace.tool", description: "Resource" }] as any,
       { command: "npx", args: ["-y", "demo"] },
@@ -415,7 +415,7 @@ describe("excludeTools filtering", () => {
 
     expect(metadata.map((tool) => [tool.name, tool.originalName, tool.description])).toEqual([
       ["demo_namespace_tool", "namespace.tool", "Dotted"],
-      ["demo_get_namespace_tool", "get_namespace.tool", "Tool before colliding resource"],
+      ["demo_read_namespace_tool", "read_namespace.tool", "Tool before colliding resource"],
     ]);
   });
 
@@ -428,7 +428,7 @@ describe("excludeTools filtering", () => {
         tools: [
           { name: "namespace.tool", description: "Dotted" },
           { name: "namespace_tool", description: "Underscored" },
-          { name: "get_namespace.tool", description: "Tool before colliding resource" },
+          { name: "read_namespace.tool", description: "Tool before colliding resource" },
         ],
         resources: [{ name: "namespace.tool", uri: "ui://namespace.tool", description: "Resource" }],
       },
@@ -438,7 +438,7 @@ describe("excludeTools filtering", () => {
 
     expect(reconstructed.map((tool) => [tool.name, tool.originalName, tool.description])).toEqual([
       ["demo_namespace_tool", "namespace.tool", "Dotted"],
-      ["demo_get_namespace_tool", "get_namespace.tool", "Tool before colliding resource"],
+      ["demo_read_namespace_tool", "read_namespace.tool", "Tool before colliding resource"],
     ]);
   });
 
@@ -450,7 +450,7 @@ describe("excludeTools filtering", () => {
           command: "npx",
           args: ["-y", "figma"],
           directTools: true,
-          excludeTools: ["figma_get_screenshot", "get_figjam"],
+          excludeTools: ["figma_get_screenshot", "read_figjam"],
         },
       },
     };
@@ -485,7 +485,7 @@ describe("excludeTools filtering", () => {
           command: "npx",
           args: ["-y", "figma"],
           directTools: true,
-          includeTools: ["get_node*", "figma_get_figjam"],
+          includeTools: ["get_node*", "figma_read_figjam"],
           excludeTools: ["get_nodes_secret"],
         },
       },
@@ -509,7 +509,7 @@ describe("excludeTools filtering", () => {
 
     const specs = resolveDirectTools(config, cache, "server");
 
-    expect(specs.map((spec) => spec.prefixedName)).toEqual(["figma_get_nodes", "figma_get_figjam"]);
+    expect(specs.map((spec) => spec.prefixedName)).toEqual(["figma_get_nodes", "figma_read_figjam"]);
   });
 
   it("matches mcp-prefixed exclusions when toolPrefix is mcp", () => {

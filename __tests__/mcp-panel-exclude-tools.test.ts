@@ -16,7 +16,7 @@ describe("mcp-panel include/exclude tools", () => {
           command: "npx",
           args: ["-y", "figma"],
           directTools: true,
-          excludeTools: ["figma_get_screenshot", "get_figjam"],
+          excludeTools: ["figma_get_screenshot", "read_figjam"],
         },
       },
     };
@@ -62,7 +62,7 @@ describe("mcp-panel include/exclude tools", () => {
 
     expect(output).toContain("get_nodes");
     expect(output).not.toContain("get_screenshot");
-    expect(output).not.toContain("get_figjam");
+    expect(output).not.toContain("read_figjam");
 
     panel.dispose();
   });
@@ -119,7 +119,7 @@ describe("mcp-panel include/exclude tools", () => {
 
     expect(output).toContain("get_nodes");
     expect(output).not.toContain("get_screenshot");
-    expect(output).not.toContain("get_figjam");
+    expect(output).not.toContain("read_figjam");
 
     panel.dispose();
   });

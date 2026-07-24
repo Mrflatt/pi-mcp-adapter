@@ -184,7 +184,7 @@ export function resolveDirectTools(
 
     if (definition.exposeResources !== false) {
       for (const resource of serverCache.resources ?? []) {
-        const baseName = `get_${resourceNameToToolName(resource.name)}`;
+        const baseName = `read_${resourceNameToToolName(resource.name)}`;
         if (toolFilter !== true && !toolFilter.includes(baseName)) continue;
         if (!isToolAllowed(baseName, serverName, prefix, definition.includeTools, definition.excludeTools)) continue;
         const prefixedName = formatToolName(baseName, serverName, prefix);
@@ -240,7 +240,7 @@ export function buildProxyDescription(
     ).length;
     const resourceCount = definition?.exposeResources !== false
       ? (entry?.resources ?? []).filter((resource) => {
-          const baseName = `get_${resourceNameToToolName(resource.name)}`;
+          const baseName = `read_${resourceNameToToolName(resource.name)}`;
           return isToolAllowed(baseName, serverName, prefix, definition.includeTools, definition.excludeTools);
         }).length
       : 0;
