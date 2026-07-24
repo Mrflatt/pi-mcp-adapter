@@ -8,6 +8,7 @@ import { McpLifecycleManager } from "./lifecycle.ts";
 import {
   computeServerHash,
   getMetadataCachePath,
+  getMissingConfiguredDirectToolServers,
   isServerCacheValid,
   loadMetadataCache,
   reconstructPromptMetadata,
@@ -23,7 +24,6 @@ import { buildToolMetadata, totalToolCount } from "./tool-metadata.ts";
 import { UiResourceHandler } from "./ui-resource-handler.ts";
 import { openUrl, parallelLimit, sanitizeTerminalText } from "./utils.ts";
 import { logger } from "./logger.ts";
-import { getMissingConfiguredDirectToolServers } from "./direct-tools.ts";
 import { throwIfAborted } from "./abort.ts";
 import { getAuthStorageOptions } from "./mcp-auth.ts";
 import { createOAuthRuntime, hasPendingAuth, shutdownOAuth, type McpOAuthRuntime } from "./mcp-auth-flow.ts";

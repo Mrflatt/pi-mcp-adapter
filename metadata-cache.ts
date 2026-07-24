@@ -4,8 +4,22 @@ import { dirname } from "node:path";
 import { getAgentPath } from "./agent-dir.ts";
 import { createHash } from "node:crypto";
 import { getToolUiResourceUri } from "@modelcontextprotocol/ext-apps/app-bridge";
-import type { McpTool, McpResource, McpPrompt, McpPromptArgument, ServerEntry, ToolMetadata, PromptMetadata } from "./types.ts";
-import { formatPromptCommandName, formatToolName, isToolAllowed, type ToolPrefix } from "./types.ts";
+import type {
+  CachedPrompt,
+  CachedResource,
+  CachedTool,
+  McpConfig,
+  McpTool,
+  McpResource,
+  McpPrompt,
+  McpPromptArgument,
+  MetadataCache,
+  ServerCacheEntry,
+  ServerEntry,
+  ToolMetadata,
+  PromptMetadata,
+} from "./types.ts";
+import { formatPromptCommandName, formatToolName, isServerDisabled, isToolAllowed, type ToolPrefix } from "./types.ts";
 import { resourceNameToToolName } from "./resource-tools.ts";
 import {
   extractToolUiStreamMode,
@@ -18,40 +32,7 @@ import {
 const CACHE_VERSION = 1;
 const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-export interface CachedTool {
-  name: string;
-  description?: string;
-  inputSchema?: unknown;
-  uiResourceUri?: string;
-  uiStreamMode?: "eager" | "stream-first";
-}
-
-export interface CachedResource {
-  uri: string;
-  name: string;
-  description?: string;
-}
-
-export interface CachedPrompt {
-  name: string;
-  title?: string;
-  description?: string;
-  arguments?: { name: string; description?: string; required?: boolean }[];
-}
-
-export interface ServerCacheEntry {
-  configHash: string;
-  tools: CachedTool[];
-  resources: CachedResource[];
-  prompts?: CachedPrompt[];
-  instructions?: string;
-  cachedAt: number;
-}
-
-export interface MetadataCache {
-  version: number;
-  servers: Record<string, ServerCacheEntry>;
-}
+export type { CachedPrompt, CachedResource, CachedTool, MetadataCache, ServerCacheEntry } from "./types.ts";
 
 export function getMetadataCachePath(): string {
   return getAgentPath("mcp-cache.json");
@@ -133,6 +114,30 @@ export function isServerCacheValid(
   if (!entry.cachedAt || typeof entry.cachedAt !== "number") return false;
   if (maxAgeMs > 0 && Date.now() - entry.cachedAt > maxAgeMs) return false;
   return true;
+}
+
+export function getMissingConfiguredDirectToolServers(
+  config: McpConfig,
+  cache: MetadataCache | null,
+): string[] {
+  const missing: string[] = [];
+  const globalDirect = config.settings?.directTools;
+
+  for (const [serverName, definition] of Object.entries(config.mcpServers)) {
+    if (isServerDisabled(definition)) continue;
+    const hasDirectTools = definition.directTools !== undefined
+      ? !!definition.directTools
+      : !!globalDirect;
+
+    if (!hasDirectTools) continue;
+
+    const serverCache = cache?.servers?.[serverName];
+    if (!serverCache || !isServerCacheValid(serverCache, definition)) {
+      missing.push(serverName);
+    }
+  }
+
+  return missing;
 }
 
 export function reconstructToolMetadata(

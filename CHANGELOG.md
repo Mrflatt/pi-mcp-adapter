@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Discovered user-global MCP configs from `~/.agents/mcp.json` and `~/.agents/mcp/mcp.json`. Thanks David Jadczyk (@davidjadczyk) for issue #117.
 - Accepted JSONC-style comments and trailing commas in MCP JSON config files. Thanks @GoCoder7 for issue #124.
 
+### Fixed
+- Removed the remaining TypeScript import cycles reported by `madge`. Thanks @av1155 for issue #101.
+
 ## [2.12.1] - 2026-07-24
 
 ### Fixed

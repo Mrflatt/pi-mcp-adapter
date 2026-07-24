@@ -25,6 +25,7 @@ vi.mock("../config.ts", () => ({
 vi.mock("../metadata-cache.ts", () => ({
   computeServerHash: vi.fn(() => "hash"),
   getMetadataCachePath: vi.fn(() => mocks.cachePath),
+  getMissingConfiguredDirectToolServers: mocks.getMissingConfiguredDirectToolServers,
   isServerCacheValid: vi.fn(() => false),
   loadMetadataCache: vi.fn(() => mocks.cache),
   reconstructToolMetadata: vi.fn(() => []),

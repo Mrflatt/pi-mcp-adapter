@@ -6,6 +6,7 @@ import type { MetadataCache } from "./metadata-cache.ts";
 import { lazyConnect, getFailureAgeSeconds, clearFailure } from "./init.ts";
 import { abortable, throwIfAborted } from "./abort.ts";
 import { isServerCacheValid } from "./metadata-cache.ts";
+export { getMissingConfiguredDirectToolServers } from "./metadata-cache.ts";
 import { formatSchema } from "./tool-metadata.ts";
 import { resolveMcpResultContent, transformMcpContent } from "./tool-registrar.ts";
 import { guardMcpOutput, guardedMcpDetails, resolveMcpOutputGuardOptions } from "./mcp-output-guard.ts";
@@ -208,30 +209,6 @@ export function resolveDirectTools(
   }
 
   return specs;
-}
-
-export function getMissingConfiguredDirectToolServers(
-  config: McpConfig,
-  cache: MetadataCache | null,
-): string[] {
-  const missing: string[] = [];
-  const globalDirect = config.settings?.directTools;
-
-  for (const [serverName, definition] of Object.entries(config.mcpServers)) {
-    if (isServerDisabled(definition)) continue;
-    const hasDirectTools = definition.directTools !== undefined
-      ? !!definition.directTools
-      : !!globalDirect;
-
-    if (!hasDirectTools) continue;
-
-    const serverCache = cache?.servers?.[serverName];
-    if (!serverCache || !isServerCacheValid(serverCache, definition)) {
-      missing.push(serverName);
-    }
-  }
-
-  return missing;
 }
 
 export function buildProxyDescription(

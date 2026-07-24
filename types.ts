@@ -438,13 +438,48 @@ export interface McpAuthResult {
   message?: string;
 }
 
+export interface CachedTool {
+  name: string;
+  description?: string;
+  inputSchema?: unknown;
+  uiResourceUri?: string;
+  uiStreamMode?: "eager" | "stream-first";
+}
+
+export interface CachedResource {
+  uri: string;
+  name: string;
+  description?: string;
+}
+
+export interface CachedPrompt {
+  name: string;
+  title?: string;
+  description?: string;
+  arguments?: { name: string; description?: string; required?: boolean }[];
+}
+
+export interface ServerCacheEntry {
+  configHash: string;
+  tools: CachedTool[];
+  resources: CachedResource[];
+  prompts?: CachedPrompt[];
+  instructions?: string;
+  cachedAt: number;
+}
+
+export interface MetadataCache {
+  version: number;
+  servers: Record<string, ServerCacheEntry>;
+}
+
 export interface McpPanelCallbacks {
   reconnect: (serverName: string) => Promise<boolean>;
   canAuthenticate: (serverName: string) => boolean;
   authenticate: (serverName: string) => Promise<McpAuthResult>;
   getConnectionStatus: (serverName: string) => "connected" | "idle" | "failed" | "needs-auth" | "disabled";
   getFailureMessage?: (serverName: string) => string | null;
-  refreshCacheAfterReconnect: (serverName: string) => import("./metadata-cache.ts").ServerCacheEntry | null;
+  refreshCacheAfterReconnect: (serverName: string) => ServerCacheEntry | null;
 }
 
 export interface McpPanelResult {
