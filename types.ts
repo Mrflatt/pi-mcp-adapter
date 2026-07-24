@@ -38,6 +38,20 @@ export interface McpResource {
   _meta?: Record<string, unknown>;
 }
 
+export interface McpPromptArgument {
+  name: string;
+  description?: string;
+  required?: boolean;
+}
+
+export interface McpPrompt {
+  name: string;
+  title?: string;
+  description?: string;
+  arguments?: McpPromptArgument[];
+  _meta?: Record<string, unknown>;
+}
+
 export interface UiResourceMeta {
   csp?: UiResourceCsp;
   permissions?: UiResourcePermissions;
@@ -392,6 +406,15 @@ export interface ToolMetadata {
   uiStreamMode?: UiStreamMode;
 }
 
+export interface PromptMetadata {
+  serverName: string;
+  originalName: string;
+  commandName: string;
+  title?: string;
+  description: string;
+  arguments: McpPromptArgument[];
+}
+
 export interface DirectToolSpec {
   serverName: string;
   originalName: string;
@@ -456,6 +479,21 @@ export function formatToolName(
   const p = getServerPrefix(serverName, prefix);
   const sanitized = toolName.replace(/\./g, "_");
   return p ? `${p}_${sanitized}` : sanitized;
+}
+
+export function sanitizePromptName(name: string): string {
+  const cleaned = name.replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^[_-]+|[_-]+$/g, "");
+  if (!cleaned) return "prompt";
+  return /^[0-9]/.test(cleaned) ? `_${cleaned}` : cleaned;
+}
+
+export function formatPromptCommandName(
+  promptName: string,
+  serverName: string,
+  prefix: ToolPrefix,
+): string {
+  const serverPart = getServerPrefix(serverName, prefix) || serverName.replace(/-/g, "_") || "server";
+  return `mcp__${serverPart}__${sanitizePromptName(promptName)}`;
 }
 
 function normalizeToolName(value: string): string {

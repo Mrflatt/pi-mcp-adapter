@@ -4,8 +4,8 @@ import { dirname } from "node:path";
 import { getAgentPath } from "./agent-dir.ts";
 import { createHash } from "node:crypto";
 import { getToolUiResourceUri } from "@modelcontextprotocol/ext-apps/app-bridge";
-import type { McpTool, McpResource, ServerEntry, ToolMetadata } from "./types.ts";
-import { formatToolName, isToolExcluded, type ToolPrefix } from "./types.ts";
+import type { McpTool, McpResource, McpPrompt, McpPromptArgument, ServerEntry, ToolMetadata, PromptMetadata } from "./types.ts";
+import { formatPromptCommandName, formatToolName, isToolExcluded, type ToolPrefix } from "./types.ts";
 import { resourceNameToToolName } from "./resource-tools.ts";
 import {
   extractToolUiStreamMode,
@@ -32,10 +32,18 @@ export interface CachedResource {
   description?: string;
 }
 
+export interface CachedPrompt {
+  name: string;
+  title?: string;
+  description?: string;
+  arguments?: { name: string; description?: string; required?: boolean }[];
+}
+
 export interface ServerCacheEntry {
   configHash: string;
   tools: CachedTool[];
   resources: CachedResource[];
+  prompts?: CachedPrompt[];
   instructions?: string;
   cachedAt: number;
 }
@@ -203,6 +211,47 @@ export function serializeResources(resources: McpResource[]): CachedResource[] {
       name: r.name,
       description: r.description,
     }));
+}
+
+export function serializePrompts(prompts: McpPrompt[]): CachedPrompt[] {
+  return (prompts ?? [])
+    .filter(prompt => prompt?.name)
+    .map(prompt => ({
+      name: prompt.name,
+      title: prompt.title,
+      description: prompt.description,
+      arguments: Array.isArray(prompt.arguments)
+        ? prompt.arguments.filter(argument => argument?.name).map(argument => ({
+            name: argument.name,
+            description: argument.description,
+            required: argument.required,
+          }))
+        : undefined,
+    }));
+}
+
+export function reconstructPromptMetadata(
+  serverName: string,
+  prompts: ReadonlyArray<McpPrompt | CachedPrompt>,
+  prefix: ToolPrefix,
+): PromptMetadata[] {
+  return (prompts ?? []).filter(prompt => prompt?.name).map(prompt => {
+    const args: McpPromptArgument[] = Array.isArray(prompt.arguments)
+      ? prompt.arguments.filter(argument => argument?.name).map(argument => ({
+          name: argument.name,
+          description: argument.description,
+          required: argument.required,
+        }))
+      : [];
+    return {
+      serverName,
+      originalName: prompt.name,
+      commandName: formatPromptCommandName(prompt.name, serverName, prefix),
+      title: prompt.title,
+      description: prompt.description ?? "",
+      arguments: args,
+    };
+  });
 }
 
 function stableStringify(value: unknown): string {

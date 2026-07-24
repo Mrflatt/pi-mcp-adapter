@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   resolveDirectTools: vi.fn(() => []),
   showStatus: vi.fn(),
   showTools: vi.fn(),
+  showPrompts: vi.fn(),
   reconnectServer: vi.fn(),
   reconnectServers: vi.fn(),
   authenticateServer: vi.fn(),
@@ -74,6 +75,7 @@ vi.mock("../direct-tools.ts", () => ({
 vi.mock("../commands.ts", () => ({
   showStatus: mocks.showStatus,
   showTools: mocks.showTools,
+  showPrompts: mocks.showPrompts,
   reconnectServer: mocks.reconnectServer,
   reconnectServers: mocks.reconnectServers,
   authenticateServer: mocks.authenticateServer,
@@ -936,6 +938,7 @@ describe("mcpAdapter session lifecycle", () => {
     expect(commandDef.getArgumentCompletions("").map(({ value }: { value: string }) => value)).toEqual([
       "reconnect",
       "tools",
+      "prompts",
       "setup",
       "logout",
       "disable",
@@ -963,6 +966,35 @@ describe("mcpAdapter session lifecycle", () => {
     ]);
     expect(commandDef.getArgumentCompletions("tools anything")).toBeNull();
     expect(api.registerCommand.mock.calls.some((call: any[]) => call[0] === "mcp-reconnect")).toBe(false);
+  });
+
+  it("hot-registers prompt commands after live prompt metadata refresh", async () => {
+    const state = createState();
+    state.promptMetadata = new Map();
+    mocks.initializeMcp.mockResolvedValue(state);
+
+    const { default: mcpAdapter } = await import("../index.ts");
+    const { api, handlers } = createPi();
+    mcpAdapter(api);
+
+    await handlers.get("session_start")?.({}, { hasUI: false });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    api.registerCommand.mockClear();
+    state.promptMetadata.set("demo", [{
+      serverName: "demo",
+      originalName: "brief",
+      commandName: "mcp__demo__brief",
+      description: "Brief",
+      arguments: [],
+    }]);
+    state.onToolMetadataUpdated?.("demo", "prompts-list-changed");
+
+    expect(api.registerCommand).toHaveBeenCalledWith("mcp__demo__brief", expect.objectContaining({
+      description: expect.stringContaining("Brief"),
+      handler: expect.any(Function),
+    }));
   });
 
   it("routes `/mcp setup` to the onboarding flow", async () => {

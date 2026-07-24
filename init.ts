@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { McpExtensionState } from "./state.ts";
-import { isServerDisabled, type McpAdapterOptions, type ToolMetadata } from "./types.ts";
+import { isServerDisabled, type McpAdapterOptions, type PromptMetadata, type ToolMetadata } from "./types.ts";
 import { existsSync } from "node:fs";
 import { cloneMcpConfig, loadMcpConfig } from "./config.ts";
 import { ConsentManager } from "./consent-manager.ts";
@@ -10,8 +10,10 @@ import {
   getMetadataCachePath,
   isServerCacheValid,
   loadMetadataCache,
+  reconstructPromptMetadata,
   reconstructToolMetadata,
   saveMetadataCache,
+  serializePrompts,
   serializeResources,
   serializeTools,
   type ServerCacheEntry,
@@ -129,6 +131,8 @@ export async function initializeMcp(
   }
   const lifecycle = new McpLifecycleManager(manager, (serverName) => hasPendingAuth(serverName, undefined, oauthRuntime));
   const toolMetadata = new Map<string, ToolMetadata[]>();
+  const promptMetadata = new Map<string, PromptMetadata[]>();
+  const promptMetadataLive = new Set<string>();
   const serverInstructions = new Map<string, string>();
   const failureTracker = new Map<string, number>();
   const failureMessages = new Map<string, string>();
@@ -139,6 +143,8 @@ export async function initializeMcp(
     manager,
     lifecycle,
     toolMetadata,
+    promptMetadata,
+    promptMetadataLive,
     serverInstructions,
     config,
     programmaticConfig: options.config !== undefined,
@@ -221,6 +227,9 @@ export async function initializeMcp(
     if (cachedEntry && isServerCacheValid(cachedEntry, definition)) {
       const metadata = reconstructToolMetadata(name, cachedEntry, prefix, definition);
       toolMetadata.set(name, metadata);
+      if (cachedEntry.prompts?.length) {
+        promptMetadata.set(name, reconstructPromptMetadata(name, cachedEntry.prompts ?? [], prefix));
+      }
       if (cachedEntry.instructions) {
         serverInstructions.set(name, cachedEntry.instructions);
       }
@@ -273,6 +282,10 @@ export async function initializeMcp(
 
     const { metadata, failedTools } = buildToolMetadata(connection.tools, connection.resources, definition, name, prefix);
     toolMetadata.set(name, metadata);
+    if (!connection.promptDiscoveryFailed) {
+      promptMetadata.set(name, reconstructPromptMetadata(name, connection.prompts ?? [], prefix));
+      promptMetadataLive.add(name);
+    }
     if (connection.instructions) {
       serverInstructions.set(name, connection.instructions);
     } else {
@@ -387,6 +400,8 @@ export function updateServerMetadata(state: McpExtensionState, serverName: strin
   if (!definition) return;
   if (isServerDisabled(definition)) {
     state.toolMetadata.delete(serverName);
+    state.promptMetadata?.delete(serverName);
+    state.promptMetadataLive?.delete(serverName);
     state.serverInstructions.delete(serverName);
     return;
   }
@@ -395,10 +410,14 @@ export function updateServerMetadata(state: McpExtensionState, serverName: strin
 
   const { metadata } = buildToolMetadata(connection.tools, connection.resources, definition, serverName, prefix);
   state.toolMetadata.set(serverName, metadata);
+  if (!connection.promptDiscoveryFailed) {
+    state.promptMetadata?.set(serverName, reconstructPromptMetadata(serverName, connection.prompts ?? [], prefix));
+    state.promptMetadataLive?.add(serverName);
+  }
   if (connection.instructions) {
-    state.serverInstructions.set(serverName, connection.instructions);
+    state.serverInstructions?.set(serverName, connection.instructions);
   } else {
-    state.serverInstructions.delete(serverName);
+    state.serverInstructions?.delete(serverName);
   }
 }
 
@@ -419,6 +438,9 @@ export function updateMetadataCache(
 
   const tools = serializeTools(connection.tools);
   let resources = definition.exposeResources === false ? [] : serializeResources(connection.resources);
+  const prompts = connection.promptDiscoveryFailed
+    ? existingEntry?.configHash === configHash ? existingEntry.prompts : undefined
+    : serializePrompts(connection.prompts ?? []);
 
   if (
     definition.exposeResources !== false &&
@@ -434,6 +456,7 @@ export function updateMetadataCache(
     configHash,
     tools,
     resources,
+    ...(prompts !== undefined ? { prompts } : {}),
     instructions: connection.instructions,
     cachedAt: Date.now(),
   };

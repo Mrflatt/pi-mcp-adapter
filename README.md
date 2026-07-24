@@ -255,6 +255,18 @@ Tune the limits with the object form:
 
 Set `"outputGuard": false` — or the env kill switch `MCP_OUTPUT_GUARD=0` — to disable the guard and restore raw output behavior. Saved temp files are created with mode `0600` under the system temp directory and are not cleaned up automatically; note that spilled MCP output may contain sensitive data.
 
+### MCP Prompts
+
+MCP servers can advertise prompt templates alongside tools and resources. The adapter registers cached prompt definitions as Pi slash commands under `/mcp__<server>__<prompt>`, and refreshes their metadata whenever a server connects. Arguments support positional and `key=value` forms with quoting; required arguments are validated before `prompts/get` is called.
+
+```text
+/mcp__agent_board__create_plan "harden retry policy"
+/mcp__agent_board__review_pipeline status=paused
+/mcp prompts
+```
+
+Prompt results are flattened into one user message, preserving `[user]` and `[assistant]` role markers for multi-message results. Servers without the `prompts` capability are not probed.
+
 ### MCP Elicitation
 
 When Pi exposes dialog-capable UI, the adapter advertises form elicitation support. Forms use Pi's stock `select()` and `input()` dialogs, validate the response, and provide a review/edit step before submission. Explicit refusal maps to MCP `decline`; dismissing a dialog maps to `cancel`.
@@ -448,6 +460,7 @@ Servers that provide usage guidance via the MCP `instructions` field surface it 
 | `/mcp` | Interactive panel and first-run onboarding surface |
 | `/mcp setup` | Guided setup for imports, a minimal `.mcp.json`, RepoPrompt quick-add, and config-path inspection |
 | `/mcp tools` | List all tools |
+| `/mcp prompts` | List all MCP prompts registered as slash commands |
 | `/mcp reconnect` | Reconnect all servers |
 | `/mcp reconnect <server>` | Connect or reconnect a single server |
 | `/mcp disable <server>` | Disable a server in the project-local `.pi/mcp.json` (requires `/reload` to apply) |

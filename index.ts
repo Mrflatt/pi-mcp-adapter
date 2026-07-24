@@ -1,13 +1,15 @@
 import type { ExtensionAPI, ExtensionContext, ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { McpExtensionState } from "./state.ts";
-import type { DirectToolSpec, McpAdapterOptions, McpConfig } from "./types.ts";
+import type { DirectToolSpec, McpAdapterOptions, McpConfig, PromptMetadata } from "./types.ts";
 import type { McpOAuthRuntime } from "./mcp-auth-flow.ts";
 import { Type } from "typebox";
-import { showStatus, showTools, reconnectServer, reconnectServers, authenticateServer, logoutServer, openMcpAuthPanel, openMcpPanel, openMcpSetup } from "./commands.ts";
+import { showStatus, showTools, showPrompts, reconnectServer, reconnectServers, authenticateServer, logoutServer, openMcpAuthPanel, openMcpPanel, openMcpSetup } from "./commands.ts";
 import { cloneMcpConfig, loadMcpConfig, writeProjectServerDisabledOverride } from "./config.ts";
 import { buildProxyDescription, createDirectToolExecutor, getMissingConfiguredDirectToolServers, resolveDirectTools } from "./direct-tools.ts";
 import { flushMetadataCache, initializeMcp, updateStatusBar } from "./init.ts";
 import { loadMetadataCache, type MetadataCache } from "./metadata-cache.ts";
+import { createPromptCommand, resolveCachedPrompts } from "./prompts.ts";
+import { logger } from "./logger.ts";
 import { executeAuthComplete, executeAuthStart, executeCall, executeConnect, executeDescribe, executeInstructions, executeList, executeSearch, executeStatus, executeUiMessages } from "./proxy-modes.ts";
 import { formatTerminalError, getConfigPathFromArgv, normalizeDirectToolInputSchema, truncateAtWord } from "./utils.ts";
 import { createOAuthRuntime, shutdownOAuth } from "./mcp-auth-flow.ts";
@@ -213,6 +215,25 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
     }
   }
 
+  const registeredPromptCommands = new Set<string>();
+
+  function registerPromptCommands(specs: Iterable<PromptMetadata>): void {
+    for (const spec of specs) {
+      if (registeredPromptCommands.has(spec.commandName)) {
+        logger.debug(`MCP: prompt "${spec.originalName}" on ${spec.serverName} skipped; /${spec.commandName} is already registered`);
+        continue;
+      }
+      registeredPromptCommands.add(spec.commandName);
+      pi.registerCommand(spec.commandName, createPromptCommand(pi, () => state, spec));
+    }
+  }
+
+  function syncPromptCommands(): void {
+    registerPromptCommands([...(state?.promptMetadata?.values() ?? [])].flat());
+  }
+
+  registerPromptCommands(resolveCachedPrompts(earlyConfig));
+
   const getPiTools = (): ToolInfo[] => pi.getAllTools();
 
   pi.registerFlag("mcp-config", {
@@ -242,8 +263,10 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
       state = nextState;
       nextState.onToolMetadataUpdated = (_serverName, _reason) => {
         if (state !== nextState || !owner.isActive()) return;
+        syncPromptCommands();
         syncToolSurface(ctx);
       };
+      syncPromptCommands();
       syncToolSurface(ctx);
       updateStatusBar(nextState);
       initPromise = null;
@@ -349,6 +372,7 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
         const subcommands = [
           { value: "reconnect", label: "reconnect — Reconnect servers" },
           { value: "tools", label: "tools — List all tools" },
+          { value: "prompts", label: "prompts — List all MCP prompts" },
           { value: "setup", label: "setup — Configure MCP servers" },
           { value: "logout", label: "logout — Clear server credentials" },
           { value: "disable", label: "disable — Disable a server" },
@@ -407,6 +431,9 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
           break;
         case "tools":
           await showTools(state, commandCtx);
+          break;
+        case "prompts":
+          await showPrompts(state, commandCtx);
           break;
         case "setup": {
           commandOwner?.throwIfInactive();

@@ -8,6 +8,7 @@ import { lazyConnect, markKeepAliveAfterConnect, notifyToolMetadataUpdated, upda
 import { abortable, throwIfAborted } from "./abort.ts";
 import { combineAbortSignals, isAbortError } from "./runtime-owner.ts";
 import { buildToolMetadata, getToolNames, findToolByName, formatSchema } from "./tool-metadata.ts";
+import { reconstructPromptMetadata } from "./metadata-cache.ts";
 import { resolveMcpResultContent, transformMcpContent } from "./tool-registrar.ts";
 import { guardMcpOutput, guardedMcpDetails, resolveMcpOutputGuardOptions } from "./mcp-output-guard.ts";
 import { maybeStartUiSession, summarizeUiSessionResult, type UiSessionRuntime } from "./ui-session.ts";
@@ -693,6 +694,10 @@ export async function executeConnect(state: McpExtensionState, serverName: strin
     const prefix = state.config.settings?.toolPrefix ?? "server";
     const { metadata } = buildToolMetadata(connection.tools, connection.resources, definition, serverName, prefix);
     state.toolMetadata.set(serverName, metadata);
+    if (!connection.promptDiscoveryFailed) {
+      state.promptMetadata?.set(serverName, reconstructPromptMetadata(serverName, connection.prompts ?? [], prefix));
+      state.promptMetadataLive?.add(serverName);
+    }
     if (connection.instructions) {
       state.serverInstructions.set(serverName, connection.instructions);
     } else {
