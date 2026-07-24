@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import type { McpExtensionState } from "./state.ts";
 import type { ToolMetadata, McpContent } from "./types.ts";
 import { getServerPrefix, isServerDisabled, parseUiPromptHandoff } from "./types.ts";
-import { lazyConnect, markKeepAliveAfterConnect, updateServerMetadata, updateMetadataCache, getFailureAgeSeconds, updateStatusBar, clearFailure, recordFailure } from "./init.ts";
+import { lazyConnect, markKeepAliveAfterConnect, notifyToolMetadataUpdated, updateServerMetadata, updateMetadataCache, getFailureAgeSeconds, updateStatusBar, clearFailure, recordFailure } from "./init.ts";
 import { abortable, throwIfAborted } from "./abort.ts";
 import { combineAbortSignals, isAbortError } from "./runtime-owner.ts";
 import { buildToolMetadata, getToolNames, findToolByName, formatSchema } from "./tool-metadata.ts";
@@ -699,6 +699,7 @@ export async function executeConnect(state: McpExtensionState, serverName: strin
       state.serverInstructions.delete(serverName);
     }
     updateMetadataCache(state, serverName);
+    notifyToolMetadataUpdated(state, serverName, "proxy-connect");
     markKeepAliveAfterConnect(state, serverName);
     clearFailure(state, serverName);
     updateStatusBar(state);
@@ -951,6 +952,7 @@ export async function executeCall(
       clearFailure(state, serverName);
       updateServerMetadata(state, serverName);
       updateMetadataCache(state, serverName);
+      notifyToolMetadataUpdated(state, serverName, "proxy-call-reconnect");
       markKeepAliveAfterConnect(state, serverName);
       updateStatusBar(state);
       toolMeta = findToolByName(state.toolMetadata.get(serverName), toolName);

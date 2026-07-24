@@ -162,6 +162,13 @@ export async function initializeMcp(
     },
   };
   if (ownsOAuthRuntime) owner.addCleanup(() => shutdownOAuth(oauthRuntime));
+  manager.setMetadataListChangedListener?.((serverName, reason) => {
+    if (!owner.isActive()) return;
+    updateServerMetadata(state, serverName);
+    updateMetadataCache(state, serverName, { preserveEmptyResources: false });
+    notifyToolMetadataUpdated(state, serverName, reason);
+    updateStatusBar(state);
+  });
   owner.addCleanup(() => lifecycle.gracefulShutdown());
   owner.addCleanup(() => {
     if (state.uiServer) {
@@ -272,6 +279,7 @@ export async function initializeMcp(
       serverInstructions.delete(name);
     }
     updateMetadataCache(state, name);
+    notifyToolMetadataUpdated(state, name, "startup");
     markKeepAliveAfterConnect(state, name);
 
     if (failedTools.length > 0 && ui) {
@@ -310,6 +318,7 @@ export async function initializeMcp(
             }
             updateServerMetadata(state, name);
             updateMetadataCache(state, name);
+            notifyToolMetadataUpdated(state, name, "direct-tools-bootstrap");
             markKeepAliveAfterConnect(state, name);
             clearFailure(state, name);
             return { name, ok: true };
@@ -337,6 +346,7 @@ export async function initializeMcp(
     if (!owner.isActive()) return;
     updateServerMetadata(state, serverName);
     updateMetadataCache(state, serverName);
+    notifyToolMetadataUpdated(state, serverName, "lifecycle-reconnect");
     clearFailure(state, serverName);
     updateStatusBar(state);
   });
@@ -392,7 +402,11 @@ export function updateServerMetadata(state: McpExtensionState, serverName: strin
   }
 }
 
-export function updateMetadataCache(state: McpExtensionState, serverName: string): void {
+export function updateMetadataCache(
+  state: McpExtensionState,
+  serverName: string,
+  options: { preserveEmptyResources?: boolean } = {},
+): void {
   const connection = state.manager.getConnection(serverName);
   if (!connection || connection.status !== "connected") return;
 
@@ -410,7 +424,8 @@ export function updateMetadataCache(state: McpExtensionState, serverName: string
     definition.exposeResources !== false &&
     resources.length === 0 &&
     existingEntry?.resources?.length &&
-    existingEntry.configHash === configHash
+    existingEntry.configHash === configHash &&
+    options.preserveEmptyResources !== false
   ) {
     resources = existingEntry.resources;
   }
@@ -424,6 +439,21 @@ export function updateMetadataCache(state: McpExtensionState, serverName: string
   };
 
   saveMetadataCache({ version: 1, servers: { [serverName]: entry } });
+}
+
+export function notifyToolMetadataUpdated(state: McpExtensionState, serverName: string, reason: string): void {
+  try {
+    const result = state.onToolMetadataUpdated?.(serverName, reason);
+    if (result && typeof (result as Promise<void>).catch === "function") {
+      (result as Promise<void>).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.debug(`MCP: metadata update hook failed for ${serverName}: ${message}`);
+      });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.debug(`MCP: metadata update hook failed for ${serverName}: ${message}`);
+  }
 }
 
 export function flushMetadataCache(state: McpExtensionState): void {
@@ -496,6 +526,7 @@ export async function lazyConnect(state: McpExtensionState, serverName: string, 
     clearFailure(state, serverName);
     updateServerMetadata(state, serverName);
     updateMetadataCache(state, serverName);
+    notifyToolMetadataUpdated(state, serverName, "lazy-connect");
     markKeepAliveAfterConnect(state, serverName);
     updateStatusBar(state);
     return true;
