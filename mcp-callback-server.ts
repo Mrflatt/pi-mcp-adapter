@@ -85,9 +85,16 @@ const HTML_ERROR = (error: string) => `<!DOCTYPE html>
 </body>
 </html>`
 
+/** Result of a successful OAuth callback */
+export interface OAuthCallbackResult {
+  code: string
+  /** RFC 9207 `iss` authorization response parameter, when provided */
+  iss?: string
+}
+
 /** Pending authorization request */
 interface PendingAuth {
-  resolve: (code: string) => void
+  resolve: (result: OAuthCallbackResult) => void
   reject: (error: Error) => void
   timeout: ReturnType<typeof setTimeout>
 }
@@ -129,6 +136,7 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
   }
 
   const code = url.searchParams.get("code")
+  const iss = url.searchParams.get("iss")
   const state = url.searchParams.get("state")
   const error = url.searchParams.get("error")
   const errorDescription = url.searchParams.get("error_description")
@@ -191,7 +199,7 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
   // Clear timeout and resolve the pending promise
   clearTimeout(pending.timeout)
   pendingAuths.delete(state)
-  pending.resolve(code)
+  pending.resolve({ code, ...(iss !== null ? { iss } : {}) })
 
   res.writeHead(200, { "Content-Type": "text/html" })
   res.end(HTML_SUCCESS)
@@ -336,9 +344,10 @@ export function releaseCallbackServer(oauthState: string): void {
 
 /**
  * Wait for a callback with the given OAuth state.
- * Returns a promise that resolves with the authorization code.
+ * Returns a promise that resolves with the authorization code and, when the
+ * authorization server sends one, the RFC 9207 `iss` parameter.
  */
-export function waitForCallback(oauthState: string): Promise<string> {
+export function waitForCallback(oauthState: string): Promise<OAuthCallbackResult> {
   reservedAuthStates.delete(oauthState)
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {

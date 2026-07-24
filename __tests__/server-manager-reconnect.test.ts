@@ -15,7 +15,8 @@ const mocks = vi.hoisted(() => ({
   httpTransports: [] as HttpTransportMock[],
 }));
 
-vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
+vi.mock("@modelcontextprotocol/client", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   Client: vi.fn().mockImplementation((info: unknown, options: unknown) => {
     const client: any = {
       info,
@@ -31,29 +32,16 @@ vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
     mocks.clients.push(client);
     return client;
   }),
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
-  StdioClientTransport: vi.fn(),
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
   StreamableHTTPClientTransport: vi.fn().mockImplementation((url: URL, options: TransportOptions) => {
     const transport = { url, options, close: vi.fn(async () => undefined) };
     mocks.httpTransports.push(transport);
     return transport;
   }),
-  StreamableHTTPError: class StreamableHTTPError extends Error {
-    code: number;
-    constructor(code: number, message: string) {
-      super(`Streamable HTTP error: ${message}`);
-      this.code = code;
-    }
-  },
+  SSEClientTransport: vi.fn(),
 }));
 
-vi.mock("@modelcontextprotocol/sdk/client/sse.js", () => ({
-  SSEClientTransport: vi.fn(),
+vi.mock("@modelcontextprotocol/client/stdio", () => ({
+  StdioClientTransport: vi.fn(),
 }));
 
 vi.mock("../npx-resolver.ts", () => ({

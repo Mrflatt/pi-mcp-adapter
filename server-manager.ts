@@ -1,14 +1,13 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
-import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import {
-  ElicitationCompleteNotificationSchema,
+  Client,
+  SSEClientTransport,
+  StreamableHTTPClientTransport,
+  UnauthorizedError,
+  type RequestOptions,
   type ReadResourceResult,
   type UrlElicitationRequiredError,
-} from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import {
   isServerDisabled,
   type McpTool,
@@ -16,8 +15,8 @@ import {
   type ServerDefinition,
   type ServerStreamResultPatchNotification,
   type Transport,
-  serverStreamResultPatchNotificationSchema,
 } from "./types.ts";
+import { SERVER_STREAM_RESULT_PATCH_METHOD, serverStreamResultPatchNotificationSchema } from "./types.ts";
 import { resolveNpxBinary } from "./npx-resolver.ts";
 import { logger } from "./logger.ts";
 import { McpOAuthProvider } from "./mcp-oauth-provider.ts";
@@ -35,6 +34,10 @@ import { combineAbortSignals } from "./runtime-owner.ts";
 
 const MAX_CAPTURED_STDERR_BYTES = 8 * 1024;
 const MAX_CAPTURED_STDERR_LINES = 3;
+const MCP_CLIENT_OPTIONS = {
+  versionNegotiation: { mode: "auto" as const },
+  inputRequired: { autoFulfill: true },
+};
 const abortCleanupPromises = new WeakMap<object, Promise<void>>();
 
 function boundedStderrChunk(chunk: Buffer | string): Buffer {
@@ -434,7 +437,10 @@ export class McpServerManager {
     const capabilities = this.buildClientCapabilities();
     const client = new Client(
       { name: `pi-mcp-${serverName}`, version: "1.0.0" },
-      Object.keys(capabilities).length > 0 ? { capabilities } : undefined,
+      {
+        ...MCP_CLIENT_OPTIONS,
+        ...(Object.keys(capabilities).length > 0 ? { capabilities } : {}),
+      },
     );
     if (this.samplingConfig) {
       registerSamplingHandler(client, { ...this.samplingConfig, serverName });
@@ -446,7 +452,7 @@ export class McpServerManager {
         onUrlAccepted: elicitationId => this.rememberUrlElicitation(serverName, elicitationId),
       });
       if (this.elicitationConfig.allowUrl) {
-        client.setNotificationHandler(ElicitationCompleteNotificationSchema, notification => {
+        client.setNotificationHandler("notifications/elicitation/complete", notification => {
           if (this.runtimeSignal?.aborted) return;
           const accepted = this.acceptedUrlElicitations.get(serverName);
           if (!accepted?.delete(notification.params.elicitationId)) return;
@@ -534,7 +540,10 @@ export class McpServerManager {
       authProvider,
     });
 
-    const testClient = new Client({ name: "pi-mcp-probe", version: "2.1.2" });
+    const testClient = new Client(
+      { name: "pi-mcp-probe", version: "2.1.2" },
+      MCP_CLIENT_OPTIONS,
+    );
     let probeCleanupAttempted = false;
     try {
       await this.connectClientWithAbort(
@@ -623,11 +632,15 @@ export class McpServerManager {
   }
 
   private attachAdapterNotificationHandlers(serverName: string, client: Client): void {
-    client.setNotificationHandler(serverStreamResultPatchNotificationSchema, (notification) => {
-      const listener = this.uiStreamListeners.get(notification.params.streamToken);
-      if (!listener) return;
-      listener(serverName, notification.params);
-    });
+    client.setNotificationHandler(
+      SERVER_STREAM_RESULT_PATCH_METHOD,
+      { params: serverStreamResultPatchNotificationSchema.shape.params },
+      (params) => {
+        const listener = this.uiStreamListeners.get(params.streamToken);
+        if (!listener) return;
+        listener(serverName, params);
+      },
+    );
   }
 
   registerUiStreamListener(streamToken: string, listener: UiStreamListener): void {

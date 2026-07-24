@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
+import { UnauthorizedError } from "@modelcontextprotocol/client";
 import { McpOAuthProvider } from "../mcp-oauth-provider.ts";
 import { saveAuthEntry } from "../mcp-auth.ts";
 
@@ -157,6 +157,87 @@ describe("McpOAuthProvider addClientAuthentication", () => {
       .rejects.toThrow("OAuth flow is no longer active");
     expect([...params.entries()]).toEqual([["grant_type", "authorization_code"]]);
     expect([...headers.entries()]).toEqual([]);
+  });
+
+  it("does not persist a pre-registered issuer stub after deactivation", async () => {
+    const provider = new McpOAuthProvider(
+      "inactive-client-info",
+      serverUrl,
+      { clientId: "my-client", clientSecret: "my-secret" },
+      { onRedirect: async () => {} },
+    );
+    provider.deactivate();
+
+    await expect(provider.saveClientInformation({
+      client_id: "my-client",
+      issuer: "https://auth.example.com",
+    })).rejects.toThrow("OAuth flow is no longer active");
+
+    const { getAuthForUrl } = await import("../mcp-auth.ts");
+    expect(getAuthForUrl("inactive-client-info", serverUrl)).toBeUndefined();
+  });
+});
+
+describe("McpOAuthProvider discovery state", () => {
+  const originalOAuthDir = process.env.MCP_OAUTH_DIR;
+  const serverUrl = "https://api.example.com/mcp";
+  let authDir: string;
+
+  beforeEach(() => {
+    authDir = mkdtempSync(join(tmpdir(), "pi-mcp-oauth-discovery-"));
+    process.env.MCP_OAUTH_DIR = authDir;
+  });
+
+  afterEach(() => {
+    rmSync(authDir, { recursive: true, force: true });
+    if (originalOAuthDir === undefined) {
+      delete process.env.MCP_OAUTH_DIR;
+    } else {
+      process.env.MCP_OAUTH_DIR = originalOAuthDir;
+    }
+  });
+
+  it("round-trips callback-leg discovery state and invalidates it independently", async () => {
+    const provider = new McpOAuthProvider(
+      "discovery-state",
+      serverUrl,
+      {},
+      { onRedirect: async () => {} },
+    );
+    const discoveryState = {
+      authorizationServerUrl: "https://auth.example.com",
+      resourceMetadataUrl: "https://api.example.com/.well-known/oauth-protected-resource/mcp",
+      authorizationServerMetadata: {
+        issuer: "https://auth.example.com",
+        authorization_endpoint: "https://auth.example.com/authorize",
+        token_endpoint: "https://auth.example.com/token",
+        response_types_supported: ["code"],
+      },
+    };
+
+    await provider.saveDiscoveryState(discoveryState);
+    expect(await provider.discoveryState()).toEqual(discoveryState);
+
+    const otherRuntimeProvider = new McpOAuthProvider(
+      "discovery-state",
+      serverUrl,
+      {},
+      { onRedirect: async () => {} },
+    );
+    expect(await otherRuntimeProvider.discoveryState()).toBeUndefined();
+
+    await provider.saveTokens({
+      access_token: "access-token",
+      token_type: "Bearer",
+      issuer: "https://auth.example.com",
+    });
+    expect(await provider.discoveryState()).toBeUndefined();
+
+    await provider.saveDiscoveryState(discoveryState);
+    await provider.invalidateCredentials("discovery");
+
+    expect(await provider.discoveryState()).toBeUndefined();
+    expect((await provider.tokens())?.access_token).toBe("access-token");
   });
 });
 

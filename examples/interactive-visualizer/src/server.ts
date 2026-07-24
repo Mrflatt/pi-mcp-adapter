@@ -1,5 +1,5 @@
-import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/server";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,7 +25,7 @@ const server = new McpServer({
   version: "0.1.0",
 });
 
-server.resource(
+server.registerResource(
   "app-html",
   new ResourceTemplate("ui://interactive-visualizer/app.html", { list: undefined }),
   { mimeType: "text/html;profile=mcp-app" },
@@ -51,15 +51,15 @@ server.registerTool(
   "show_chart",
   {
     description: "Display an interactive chart. The chart opens in a UI window.",
-    inputSchema: {
+    inputSchema: z.object({
       type: z.string().describe("Chart type: bar, line, pie, or doughnut"),
       title: z.string().describe("Chart title"),
       labels: z.string().describe("Comma-separated labels for the x-axis or segments"),
       datasets: z.string().describe("JSON array of datasets: [{label, data: number[], color?}]"),
-    },
+    }),
     _meta: { ui: { resourceUri: "ui://interactive-visualizer/app.html" } },
   },
-  async (args, extra) => {
+  async (args, ctx) => {
     const spec = {
       type: args.type || "bar",
       title: args.title || "Chart",
@@ -67,10 +67,10 @@ server.registerTool(
       datasets: JSON.parse(args.datasets || "[]"),
     };
 
-    const streamToken = extra._meta?.["pi-mcp-adapter/stream-token"] as string | undefined;
+    const streamToken = ctx.mcpReq._meta?.["pi-mcp-adapter/stream-token"] as string | undefined;
     if (streamToken) {
       const sendAdapterNotification = (notification: StreamNotification) =>
-        extra.sendNotification(notification as never);
+        ctx.mcpReq.notify(notification as never);
       for (let i = 0; i < spec.datasets.length; i++) {
         const partial = { ...spec, datasets: spec.datasets.slice(0, i + 1) };
         const isLast = i === spec.datasets.length - 1;
@@ -182,15 +182,15 @@ server.registerTool(
   "stream_adventure",
   {
     description: "Stream an interactive choose-your-own-adventure decision tree. The story builds tier by tier. Click any choice node to send your decision back to the agent.",
-    inputSchema: {},
+    inputSchema: z.object({}),
     _meta: { ui: { resourceUri: "ui://interactive-visualizer/app.html" } },
   },
-  async (_args, extra) => {
-    const streamToken = extra._meta?.["pi-mcp-adapter/stream-token"] as string | undefined;
+  async (_args, ctx) => {
+    const streamToken = ctx.mcpReq._meta?.["pi-mcp-adapter/stream-token"] as string | undefined;
 
     if (streamToken) {
       const sendAdapterNotification = (notification: StreamNotification) =>
-        extra.sendNotification(notification as never);
+        ctx.mcpReq.notify(notification as never);
       for (let t = 1; t <= STORY.length; t++) {
         const isLast = t === STORY.length;
         await sendStreamFrame(streamToken, sendAdapterNotification, {

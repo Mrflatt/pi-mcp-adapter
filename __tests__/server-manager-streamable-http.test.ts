@@ -89,6 +89,8 @@ describe("McpServerManager StreamableHTTP transport", () => {
       expect(connection.tools).toEqual([]);
       expect(connection.resources).toEqual([]);
       expect(requests).toContain("GET /mcp");
+      // SDK v2 probes the optional GET stream once, then keeps the successful
+      // POST-based session without an SSE fallback or retry storm.
       expect(requests.filter(request => request === "GET /mcp")).toHaveLength(1);
     } finally {
       await manager.close("post-only").catch(() => {});

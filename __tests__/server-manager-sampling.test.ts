@@ -10,7 +10,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("open", () => ({ default: mocks.open }));
 
-vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
+vi.mock("@modelcontextprotocol/client", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   Client: vi.fn().mockImplementation(function (this: any, info: unknown, options: unknown) {
     this.info = info;
     this.options = options;
@@ -22,29 +23,16 @@ vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
     this.close = vi.fn(async () => undefined);
     mocks.clients.push(this);
   }),
+  StreamableHTTPClientTransport: vi.fn(),
+  SSEClientTransport: vi.fn(),
 }));
 
-vi.mock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
+vi.mock("@modelcontextprotocol/client/stdio", () => ({
   StdioClientTransport: vi.fn().mockImplementation(function (this: any, options: unknown) {
     this.options = options;
     this.close = vi.fn(async () => undefined);
     mocks.transports.push(this);
   }),
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
-  StreamableHTTPClientTransport: vi.fn(),
-  StreamableHTTPError: class StreamableHTTPError extends Error {
-    code: number;
-    constructor(code: number, message: string) {
-      super(`Streamable HTTP error: ${message}`);
-      this.code = code;
-    }
-  },
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/sse.js", () => ({
-  SSEClientTransport: vi.fn(),
 }));
 
 vi.mock("../npx-resolver.ts", () => ({
@@ -81,7 +69,11 @@ describe("McpServerManager sampling", () => {
     await manager.connect("demo", { command: "node", args: ["server.js"] });
 
     const client = mocks.clients[0];
-    expect(client.options).toEqual({ capabilities: { sampling: {} } });
+    expect(client.options).toEqual({
+      capabilities: { sampling: {} },
+      versionNegotiation: { mode: "auto" },
+      inputRequired: { autoFulfill: true },
+    });
     expect(client.setRequestHandler).toHaveBeenCalledTimes(1);
     expect(client.setRequestHandler.mock.invocationCallOrder[0]).toBeLessThan(
       client.connect.mock.invocationCallOrder[0],
@@ -106,6 +98,8 @@ describe("McpServerManager sampling", () => {
           url: {},
         },
       },
+      versionNegotiation: { mode: "auto" },
+      inputRequired: { autoFulfill: true },
     });
     expect(client.setRequestHandler).toHaveBeenCalledTimes(1);
     expect(client.setRequestHandler.mock.invocationCallOrder[0]).toBeLessThan(
@@ -122,6 +116,8 @@ describe("McpServerManager sampling", () => {
 
     expect(mocks.clients[0].options).toEqual({
       capabilities: { elicitation: { form: {} } },
+      versionNegotiation: { mode: "auto" },
+      inputRequired: { autoFulfill: true },
     });
   });
 
@@ -161,7 +157,7 @@ describe("McpServerManager sampling", () => {
   });
 
   it("handles every URL in a URL-required error", async () => {
-    const { UrlElicitationRequiredError } = await import("@modelcontextprotocol/sdk/types.js");
+    const { UrlElicitationRequiredError } = await import("@modelcontextprotocol/client");
     const { McpServerManager } = await import("../server-manager.ts");
     const ui = {
       select: vi.fn().mockResolvedValue("Open"),
@@ -204,6 +200,8 @@ describe("McpServerManager sampling", () => {
           url: {},
         },
       },
+      versionNegotiation: { mode: "auto" },
+      inputRequired: { autoFulfill: true },
     });
     expect(mocks.clients[0].setRequestHandler).toHaveBeenCalledTimes(2);
   });
@@ -215,7 +213,10 @@ describe("McpServerManager sampling", () => {
     await manager.connect("demo", { command: "node", args: ["server.js"] });
 
     const client = mocks.clients[0];
-    expect(client.options).toBeUndefined();
+    expect(client.options).toEqual({
+      versionNegotiation: { mode: "auto" },
+      inputRequired: { autoFulfill: true },
+    });
     expect(client.setRequestHandler).not.toHaveBeenCalled();
   });
 

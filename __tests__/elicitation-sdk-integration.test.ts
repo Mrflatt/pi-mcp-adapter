@@ -82,7 +82,7 @@ describe("elicitation with the real MCP SDK", () => {
     const connection = manager.getConnection("real")!;
 
     await expect(connection.client.callTool({ name: "url", arguments: {} })).rejects.toThrow(
-      /does not support URL-mode elicitation requests/,
+      /does not support (?:URL-mode|url) elicitation/,
     );
     expect(mocks.open).not.toHaveBeenCalled();
   });
