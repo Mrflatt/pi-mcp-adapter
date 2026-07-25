@@ -284,7 +284,7 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
       syncToolSurface(ctx);
       updateStatusBar(nextState);
       initPromise = null;
-    }).catch(err => {
+    }).catch(async err => {
       if (!owner.isActive() || generation !== lifecycleGeneration) {
         return;
       }
@@ -293,6 +293,16 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
       }
       console.error(`MCP initialization failed: ${formatTerminalError(err)}`);
       initPromise = null;
+      if (state) return;
+
+      try {
+        await Promise.all([
+          owner.stop("MCP initialization failed"),
+          shutdownOAuth(oauthRuntime),
+        ]);
+      } catch (error) {
+        console.error(`MCP: failed to clean rejected initialization: ${formatTerminalError(error)}`);
+      }
     });
   }
 

@@ -1234,6 +1234,24 @@ describe("mcpAdapter session lifecycle", () => {
     expect(mocks.authenticateServer).not.toHaveBeenCalled();
   });
 
+  it("stops the runtime when initialization rejects before publishing state", async () => {
+    mocks.initializeMcp.mockRejectedValue(new Error("init boom"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const { default: mcpAdapter } = await import("../index.ts");
+      const { api, handlers } = createPi();
+      mcpAdapter(api);
+
+      await handlers.get("session_start")?.({}, {});
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(mocks.createOAuthRuntime.mock.results[0].value.signal.aborted).toBe(true);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("logs initialization errors when updateStatusBar throws", async () => {
     const state = createState();
     mocks.initializeMcp.mockResolvedValue(state);

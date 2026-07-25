@@ -98,7 +98,10 @@ export function interpolateEnvRecord(values: Record<string, string> | undefined)
 }
 
 export function resolveServerUrl(definition: Pick<ServerEntry, "url">): string | undefined {
-  if (definition.url === undefined) return undefined;
+  if (definition.url == null) return undefined;
+  if (typeof definition.url !== "string") {
+    throw new Error("MCP server URL must be a string");
+  }
 
   const missing = getMissingEnvVars(definition.url);
   if (missing.length > 0) {
