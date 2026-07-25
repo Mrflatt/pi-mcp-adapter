@@ -21,6 +21,7 @@ import {
 } from "./types.ts";
 import { SERVER_STREAM_RESULT_PATCH_METHOD, serverStreamResultPatchNotificationSchema } from "./types.ts";
 import { resolveNpxBinary } from "./npx-resolver.ts";
+import { createJsonSchemaValidator } from "./json-schema-validator.ts";
 import { logger } from "./logger.ts";
 import { McpOAuthProvider } from "./mcp-oauth-provider.ts";
 import { extractOAuthConfig, supportsOAuth, type McpOAuthRuntime } from "./mcp-auth-flow.ts";
@@ -489,6 +490,7 @@ export class McpServerManager {
       { name: `pi-mcp-${serverName}`, version: "1.0.0" },
       {
         ...MCP_CLIENT_OPTIONS,
+        jsonSchemaValidator: createJsonSchemaValidator(),
         ...(Object.keys(capabilities).length > 0 ? { capabilities } : {}),
         listChanged: {
           tools: {

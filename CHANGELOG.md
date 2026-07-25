@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Deferred implicit OAuth credential-store access until an HTTP server actually challenges for authentication, so unauthenticated remote Streamable HTTP servers work in headless environments. Thanks @vdom-1 for issue #218.
+- Accepted draft-07 tool output schemas alongside JSON Schema 2020-12 while preserving structured-content validation. Thanks Daniel Marbach (@danielmarbach) for issue #217.
 
 ## [2.13.0] - 2026-07-25
 

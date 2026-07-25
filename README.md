@@ -524,6 +524,10 @@ If `settings.autoAuth` is `true`, `mcp({ connect: ... })`, `mcp({ tool: ... })`,
 
 In interactive sessions, you can also authenticate from `/mcp` with `ctrl+a` or Enter on a server that needs auth. In remote/headless sessions, use the proxy tool's `auth-start` and `auth-complete` actions to copy the authorization URL locally and paste the redirect URL back into Pi. `/mcp-auth` without a server only opens a picker in the interactive UI.
 
+### MCP output schemas
+
+Advertised tool `outputSchema` values support JSON Schema draft-07 and 2020-12. Unstamped schemas use the SDK's 2020-12 default. Returned `structuredContent` is validated against the advertised schema for both proxy and direct-tool calls.
+
 ## How It Works
 
 - One `mcp` tool in context (~200 tokens) instead of hundreds
