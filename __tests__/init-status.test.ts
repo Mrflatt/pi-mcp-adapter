@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { updateStatusBar } from "../init.ts";
+import type { McpSettings } from "../types.ts";
 
-function createState(ui: unknown, settings: Record<string, unknown> = {}) {
+function createState(ui: unknown, settings: Partial<McpSettings> = {}) {
   return {
     ui,
     config: { settings, mcpServers: { demo: { command: "demo" } } },
@@ -12,7 +13,7 @@ function createState(ui: unknown, settings: Record<string, unknown> = {}) {
 describe("updateStatusBar", () => {
   it("shows enabled servers instead of active connections as the primary count", () => {
     const setStatus = vi.fn();
-    const state = createState({ setStatus, theme: undefined });
+    const state = createState({ setStatus });
 
     updateStatusBar(state);
 
@@ -21,7 +22,7 @@ describe("updateStatusBar", () => {
 
   it("does not count a needs-auth connection as connected", () => {
     const setStatus = vi.fn();
-    const state = createState({ setStatus, theme: undefined });
+    const state = createState({ setStatus });
     state.manager.getAllConnections.mockReturnValue(new Map([["demo", { status: "needs-auth" }]]));
 
     updateStatusBar(state);
@@ -31,7 +32,7 @@ describe("updateStatusBar", () => {
 
   it("shows connected servers as secondary state", () => {
     const setStatus = vi.fn();
-    const state = createState({ setStatus, theme: undefined });
+    const state = createState({ setStatus });
     state.manager.getAllConnections.mockReturnValue(new Map([["demo", { status: "connected" }]]));
 
     updateStatusBar(state);
@@ -53,7 +54,7 @@ describe("updateStatusBar", () => {
 
   it("keeps the icon when explicitly enabled", () => {
     const setStatus = vi.fn();
-    updateStatusBar(createState({ setStatus, theme: undefined }, { showStatusIcon: true }));
+    updateStatusBar(createState({ setStatus }, { showStatusIcon: true }));
 
     expect(setStatus).toHaveBeenCalledWith("mcp", "🔌 MCP: 1 server enabled");
   });

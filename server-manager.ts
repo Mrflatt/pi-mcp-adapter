@@ -52,6 +52,12 @@ const MCP_CLIENT_OPTIONS = {
 };
 const abortCleanupPromises = new WeakMap<object, Promise<void>>();
 
+type HttpAuthProviderState =
+  | { status: "disabled" }
+  | { status: "implicit-deferred" }
+  | { status: "explicit"; provider: McpOAuthProvider }
+  | { status: "implicit-challenged"; provider: McpOAuthProvider };
+
 function isUnauthorizedHttpError(error: unknown): boolean {
   return error instanceof UnauthorizedError || (error instanceof SdkHttpError && error.status === 401);
 }
@@ -637,8 +643,6 @@ export class McpServerManager {
 
     // Create request init with headers (Authorization now included for bearer auth)
     const requestInit = Object.keys(headers).length > 0 ? { headers } : undefined;
-    const oauthEnabled = supportsOAuth(definition);
-    const implicitOAuth = definition.auth === undefined && oauthEnabled;
     const createAuthProvider = (): McpOAuthProvider => new McpOAuthProvider(
       serverName,
       serverUrl,
@@ -653,14 +657,16 @@ export class McpServerManager {
     );
 
     // Explicit OAuth must check the secure credential store before connecting.
-    let authProvider: McpOAuthProvider | undefined;
-    if (oauthEnabled && !implicitOAuth) {
-      authProvider = createAuthProvider();
-    }
+    let authState: HttpAuthProviderState = supportsOAuth(definition)
+      ? definition.auth === undefined
+        ? { status: "implicit-deferred" }
+        : { status: "explicit", provider: createAuthProvider() }
+      : { status: "disabled" };
 
     // Try StreamableHTTP first (modern MCP servers). For implicit OAuth, defer
     // creating the provider until the server proves that authentication is needed.
     for (;;) {
+      const authProvider = "provider" in authState ? authState.provider : undefined;
       const streamableTransport = new StreamableHTTPClientTransport(url, {
         requestInit,
         authProvider,
@@ -717,8 +723,8 @@ export class McpServerManager {
 
         // An implicit URL-only server gets a provider only after a real auth
         // challenge. This keeps unauthenticated servers independent of storage.
-        if (implicitOAuth && !authProvider && isUnauthorizedHttpError(error)) {
-          authProvider = createAuthProvider();
+        if (authState.status === "implicit-deferred" && isUnauthorizedHttpError(error)) {
+          authState = { status: "implicit-challenged", provider: createAuthProvider() };
           continue;
         }
 

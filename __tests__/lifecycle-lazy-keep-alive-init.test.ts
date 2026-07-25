@@ -217,7 +217,6 @@ describe("lazy-keep-alive initializeMcp integration", () => {
       hasUI: true,
       mode: "tui",
       ui,
-      signal: undefined,
     } as any);
 
     expect(ui.setStatus).toHaveBeenCalledWith("mcp", "MCP: connecting to 1 servers...");

@@ -6,26 +6,36 @@ import {
 import type {
   JsonSchemaType,
   JsonSchemaValidator,
-  jsonSchemaValidator,
+  jsonSchemaValidator as JsonSchemaValidatorProvider,
 } from "@modelcontextprotocol/client";
 
-const DRAFT_07_SCHEMA_URIS = new Set([
+type SchemaDialect =
+  | { status: "unstamped" }
+  | { status: "stamped"; uri: string };
+
+const DRAFT_07_SCHEMA_URIS: ReadonlySet<string> = new Set([
   "http://json-schema.org/draft-07/schema",
   "https://json-schema.org/draft-07/schema",
 ]);
 
-function schemaDialect(schema: JsonSchemaType): string | undefined {
-  if (!("$schema" in schema) || typeof schema.$schema !== "string") return undefined;
-  return schema.$schema.endsWith("#") ? schema.$schema.slice(0, -1) : schema.$schema;
+function schemaDialect(schema: JsonSchemaType): SchemaDialect {
+  if (!("$schema" in schema) || typeof schema.$schema !== "string") {
+    return { status: "unstamped" };
+  }
+  return {
+    status: "stamped",
+    uri: schema.$schema.endsWith("#") ? schema.$schema.slice(0, -1) : schema.$schema,
+  };
 }
 
-export function createJsonSchemaValidator(): jsonSchemaValidator {
+export function createJsonSchemaValidator(): JsonSchemaValidatorProvider {
   const defaultValidator = new AjvJsonSchemaValidator();
   let draft07Validator: AjvJsonSchemaValidator | undefined;
 
   return {
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
-      if (!DRAFT_07_SCHEMA_URIS.has(schemaDialect(schema) ?? "")) {
+      const dialect = schemaDialect(schema);
+      if (dialect.status !== "stamped" || !DRAFT_07_SCHEMA_URIS.has(dialect.uri)) {
         return defaultValidator.getValidator<T>(schema);
       }
 
