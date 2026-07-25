@@ -374,8 +374,8 @@ export class McpServerManager {
         }
       };
 
-      // Discover tools, resources, and prompts. Prompt listing is optional:
-      // only servers advertising the capability are queried.
+      // Discover tools, resources, and prompts. Resource and prompt listing is
+      // optional: only servers advertising the capability are queried.
       const [tools, resources, promptResult] = await Promise.all([
         this.fetchAllTools(client, requestOptions),
         this.fetchAllResources(client, requestOptions),
@@ -753,6 +753,9 @@ export class McpServerManager {
   }
 
   private async fetchAllResources(client: Client, requestOptions?: RequestOptions): Promise<McpResource[]> {
+    const capabilities = client.getServerCapabilities?.();
+    if (!capabilities?.resources) return [];
+
     try {
       const allResources: McpResource[] = [];
       let cursor: string | undefined;
@@ -768,7 +771,7 @@ export class McpServerManager {
       if (requestOptions?.signal?.aborted) {
         throwIfAborted(requestOptions.signal);
       }
-      // Server may not support resources
+      // The server advertises resources but the listing failed
       return [];
     }
   }

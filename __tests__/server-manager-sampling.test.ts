@@ -18,6 +18,7 @@ vi.mock("@modelcontextprotocol/client", async (importOriginal) => ({
     this.setRequestHandler = vi.fn();
     this.setNotificationHandler = vi.fn();
     this.connect = vi.fn(async () => undefined);
+    this.getServerCapabilities = vi.fn(() => ({ tools: {}, resources: {} }));
     this.listTools = vi.fn(async () => ({ tools: [] }));
     this.listResources = vi.fn(async () => ({ resources: [] }));
     this.close = vi.fn(async () => undefined);

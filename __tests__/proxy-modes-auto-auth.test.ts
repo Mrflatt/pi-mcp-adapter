@@ -47,6 +47,7 @@ vi.mock("@modelcontextprotocol/client", async (importOriginal) => ({
     this.connect = vi.fn((transport: unknown, requestOptions: unknown) =>
       mocks.connectImpl(transport, requestOptions)
     );
+    this.getServerCapabilities = vi.fn(() => ({ tools: {}, resources: {} }));
     this.listTools = vi.fn((params: unknown, requestOptions: unknown) =>
       mocks.listToolsImpl(params, requestOptions)
     );
