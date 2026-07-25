@@ -262,12 +262,6 @@ function formatTruncationNotice(
  * raw JSON to a temp file.
  */
 async function boundMcpResult(result: unknown, detailsMaxBytes: number): Promise<unknown> {
-  // Serialize once, compact. This runs on every proxied tool call purely to size
-  // the raw result against detailsMaxBytes: when it fits we return the object
-  // untouched (the string was only a measurement), and when it doesn't we reuse
-  // the same string as the spilled artifact. Pretty-printing here would allocate
-  // a larger throwaway copy on the hot path that never reaches the model, and
-  // compact JSON tracks the raw result's actual context cost more closely.
   const raw = safeStringify(result);
   const rawBytes = byteLength(raw);
   if (rawBytes <= detailsMaxBytes) return result;
@@ -374,10 +368,7 @@ function asRecord(value: unknown): Recordish | undefined {
 
 function safeStringify(value: unknown): string {
   try {
-    // Compact on purpose: the only caller (boundMcpResult) uses this to measure
-    // and, when oversized, to spill the raw result — never to render it for the
-    // model. Indentation would just inflate a hot-path string that is discarded
-    // whenever the result fits within detailsMaxBytes.
+    // The output guard measures and spills raw MCP results; it does not render this JSON for the model.
     return JSON.stringify(value);
   } catch {
     return String(value);

@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Accepted JSONC-style comments and trailing commas in MCP JSON config files. Thanks @GoCoder7 for issue #124.
 
 ### Changed
+- Measured and spilled oversized raw MCP result details as compact JSON instead of pretty-printed JSON, reducing hot-path allocation and event-loop work. Thanks José Maia (@glitch-ux) for issue #214 and PR #215.
 - Renamed generated MCP resource tools from `get_<resource>` to `read_<resource>` to match the MCP `resources/read` operation. Thanks @vdom-1 for issue #185.
 
 ### Security
