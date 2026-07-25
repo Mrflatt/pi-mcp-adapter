@@ -9,6 +9,7 @@ import {
   type UrlElicitationRequiredError,
 } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { UnixSocketClientTransport } from "./unix-socket-transport.ts";
 import {
   isServerDisabled,
   type McpTool,
@@ -314,6 +315,11 @@ export class McpServerManager {
 
     let transport: Transport;
     let stderrTail: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+    const configuredTransports = [definition.command, definition.url, definition.socket]
+      .filter(value => typeof value === "string" && value.length > 0);
+    if (configuredTransports.length !== 1) {
+      throw new Error(`Server ${name} must configure exactly one of command, url, or socket`);
+    }
 
     if (definition.command) {
       let command = definition.command;
@@ -348,7 +354,7 @@ export class McpServerManager {
       // HTTP transport with fallback
       transport = await this.createHttpTransport(definition, name, signal, requestSignal, traceObserver);
     } else {
-      throw new Error(`Server ${name} has no command or url`);
+      transport = new UnixSocketClientTransport(resolveConfigPath(definition.socket!)!);
     }
 
     if (traceObserver) {

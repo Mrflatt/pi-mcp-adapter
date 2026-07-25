@@ -1,14 +1,9 @@
 // types.ts - Core type definitions
-import type { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import type { SSEClientTransport, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import type { Transport as McpTransport } from "@modelcontextprotocol/client";
 import type { TextContent, ImageContent } from "@earendil-works/pi-ai";
 import type { UiStreamMode } from "./ui-stream-types.ts";
 
-// Transport type (stdio + HTTP)
-export type Transport = 
-  | StdioClientTransport 
-  | SSEClientTransport 
-  | StreamableHTTPClientTransport;
+export type Transport = McpTransport;
 
 /** Versioned shared-event-bus channel for read-only MCP runtime snapshots. */
 export const MCP_STATUS_EVENT = "pi-mcp-adapter/status/v1";
@@ -324,6 +319,8 @@ export interface OAuthConfig {
 export interface ServerEntry {
   command?: string;
   args?: string[];
+  /** Explicit rmcp-mux Unix-domain socket path. Mutually exclusive with command and url. */
+  socket?: string;
   env?: Record<string, string>;
   cwd?: string;
   // HTTP fields

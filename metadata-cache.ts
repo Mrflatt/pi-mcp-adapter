@@ -84,6 +84,7 @@ export function computeServerHash(definition: ServerEntry): string {
   const identity: Record<string, unknown> = {
     command: definition.command,
     args: definition.args,
+    socket: resolveConfigPath(definition.socket),
     env: interpolateEnvRecord(definition.env),
     cwd: resolveConfigPath(definition.cwd),
     url: resolveServerUrl(definition),

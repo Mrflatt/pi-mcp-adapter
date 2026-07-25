@@ -79,6 +79,34 @@ describe("config discovery", () => {
     });
   });
 
+  it("replaces transport-specific fields when an override switches to or from a socket", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-config-home-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-mcp-config-project-"));
+    process.env.HOME = home;
+    process.chdir(project);
+
+    writeJson(join(home, ".config", "mcp", "mcp.json"), {
+      mcpServers: {
+        toSocket: { command: "old", args: ["--old"], env: { OLD: "1" }, cwd: "/old" },
+        toCommand: { socket: "/old.sock" },
+        toUrl: { socket: "/old.sock" },
+      },
+    });
+    writeJson(join(home, ".pi", "agent", "mcp.json"), {
+      mcpServers: {
+        toSocket: { socket: "/shared.sock" },
+        toCommand: { command: "new" },
+        toUrl: { url: "https://example.test/mcp" },
+      },
+    });
+
+    const { loadMcpConfig } = await import("../config.ts");
+    const servers = loadMcpConfig().mcpServers;
+    expect(servers.toSocket).toEqual({ socket: "/shared.sock" });
+    expect(servers.toCommand).toEqual({ command: "new" });
+    expect(servers.toUrl).toEqual({ url: "https://example.test/mcp" });
+  });
+
   it("loads tool-agnostic .agents global MCP files before Pi overrides", async () => {
     const home = mkdtempSync(join(tmpdir(), "pi-mcp-agents-home-"));
     const project = mkdtempSync(join(tmpdir(), "pi-mcp-agents-project-"));

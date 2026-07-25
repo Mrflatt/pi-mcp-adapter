@@ -75,6 +75,7 @@
     "ui-stream-types.ts",
     "config.ts",
     "server-manager.ts",
+    "unix-socket-transport.ts",
     "json-schema-validator.ts",
     "session-recovery.ts",
     "sampling-handler.ts",

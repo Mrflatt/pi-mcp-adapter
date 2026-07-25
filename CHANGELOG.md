@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added native `rmcp-mux` Unix-socket connections for explicitly sharing external MCP server processes across Pi sessions. Thanks j0e1 (@pWoLiAn) for issue #76.
 - Added connection-time command resolution for HTTP bearer tokens and headers, OAuth client secrets, and stdio environment values, with `!!` escaping and fail-closed execution. Thanks @estrizhok for issue #221.
 
 ### Fixed

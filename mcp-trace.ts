@@ -9,7 +9,7 @@ export const DEFAULT_MCP_TRACE_MAX_BYTES = 256 * 1024;
 export const DEFAULT_MCP_TRACE_MAX_EVENTS = 10_000;
 
 export type McpTraceDirection = "outbound" | "inbound";
-export type McpTraceTransport = "stdio" | "sse" | "streamable-http" | "unknown";
+export type McpTraceTransport = "stdio" | "unix-socket" | "sse" | "streamable-http" | "unknown";
 export type McpTraceMessageKind = "request" | "response" | "notification";
 
 export interface McpTraceSettings {
@@ -301,8 +301,9 @@ export function wrapTransportWithMcpTrace<T extends Transport>(
   return traced as T;
 }
 
-export function traceTransportKind(definition: { command?: string; url?: string }, transport: Transport): McpTraceTransport {
+export function traceTransportKind(definition: { command?: string; url?: string; socket?: string }, transport: Transport): McpTraceTransport {
   if (definition.command) return "stdio";
+  if (definition.socket) return "unix-socket";
   const constructorName = transport.constructor?.name.toLowerCase() ?? "";
   if (constructorName.includes("sse")) return "sse";
   if (constructorName.includes("streamable")) return "streamable-http";

@@ -409,8 +409,20 @@ function mergeServerMaps(
     // applies (it is spread last). Behaviour is unchanged when the url is
     // identical or the override omits `url` (partial overrides still inherit).
     let baseEntry: ServerEntry = existing ?? {};
-    if (existing && typeof definition.url === "string" && definition.url !== existing.url) {
+    if (existing && typeof definition.socket === "string") {
       baseEntry = { ...existing };
+      for (const field of [
+        "command", "args", "env", "cwd", "url", "headers", "auth",
+        "bearerToken", "bearerTokenEnv", "oauth",
+      ] as const) {
+        delete baseEntry[field];
+      }
+    } else if (existing?.socket && (typeof definition.command === "string" || typeof definition.url === "string")) {
+      baseEntry = { ...existing };
+      delete baseEntry.socket;
+    }
+    if (existing && typeof definition.url === "string" && definition.url !== existing.url) {
+      if (baseEntry === existing) baseEntry = { ...existing };
       for (const field of URL_BOUND_AUTH_FIELDS) {
         delete baseEntry[field];
       }
