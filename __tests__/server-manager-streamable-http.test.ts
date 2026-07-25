@@ -18,6 +18,100 @@ afterEach(async () => {
 });
 
 describe("McpServerManager StreamableHTTP transport", () => {
+  it("does not read unavailable secure storage for an unauthenticated URL-only server", async () => {
+    const previousStore = process.env.PI_MCP_ADAPTER_TEST_AUTH_STORE;
+    process.env.PI_MCP_ADAPTER_TEST_AUTH_STORE = "unavailable";
+    const server = http.createServer(async (req, res) => {
+      if (req.method === "GET") {
+        res.writeHead(405, { Allow: "POST" }).end("Method Not Allowed");
+        return;
+      }
+      if (req.method !== "POST") {
+        res.writeHead(405, { Allow: "POST" }).end("Method Not Allowed");
+        return;
+      }
+
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      const message = JSON.parse(body) as { id?: string | number; method?: string };
+      const result = message.method === "initialize"
+        ? {
+            protocolVersion: "2025-06-18",
+            capabilities: { tools: {}, resources: {} },
+            serverInfo: { name: "unauthenticated", version: "1.0.0" },
+          }
+        : message.method === "tools/list"
+          ? { tools: [] }
+          : message.method === "resources/list"
+            ? { resources: [] }
+            : undefined;
+
+      if (result) {
+        res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({
+          jsonrpc: "2.0",
+          id: message.id,
+          result,
+        }));
+        return;
+      }
+      if (message.method === "notifications/initialized") {
+        res.writeHead(202).end();
+        return;
+      }
+      res.writeHead(500).end(`unexpected method: ${message.method}`);
+    });
+    servers.push(server);
+
+    try {
+      await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("server did not bind to a TCP port");
+
+      const manager = new McpServerManager();
+      const connection = await manager.connect("unauthenticated", {
+        url: `http://127.0.0.1:${address.port}/mcp`,
+      });
+
+      expect(connection.status).toBe("connected");
+      await manager.close("unauthenticated");
+    } finally {
+      if (previousStore === undefined) {
+        delete process.env.PI_MCP_ADAPTER_TEST_AUTH_STORE;
+      } else {
+        process.env.PI_MCP_ADAPTER_TEST_AUTH_STORE = previousStore;
+      }
+    }
+  });
+
+  it("fails closed for explicit OAuth when secure storage is unavailable", async () => {
+    const previousStore = process.env.PI_MCP_ADAPTER_TEST_AUTH_STORE;
+    process.env.PI_MCP_ADAPTER_TEST_AUTH_STORE = "unavailable";
+    const server = http.createServer((_req, res) => {
+      res.writeHead(401, {
+        "WWW-Authenticate": 'Bearer resource_metadata="https://example.test/.well-known/oauth-protected-resource"',
+      }).end("Unauthorized");
+    });
+    servers.push(server);
+
+    try {
+      await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("server did not bind to a TCP port");
+
+      const manager = new McpServerManager();
+      await expect(manager.connect("oauth", {
+        url: `http://127.0.0.1:${address.port}/mcp`,
+        auth: "oauth",
+      })).rejects.toThrow(/Failed to read OAuth credentials.*OS secure credential store/);
+    } finally {
+      if (previousStore === undefined) {
+        delete process.env.PI_MCP_ADAPTER_TEST_AUTH_STORE;
+      } else {
+        process.env.PI_MCP_ADAPTER_TEST_AUTH_STORE = previousStore;
+      }
+    }
+  });
+
   it("does not fall back to SSE when optional GET stream returns 405", async () => {
     const requests: string[] = [];
     const server = http.createServer(async (req, res) => {

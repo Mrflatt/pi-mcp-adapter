@@ -2,6 +2,7 @@ import {
   Client,
   SSEClientTransport,
   StreamableHTTPClientTransport,
+  SdkHttpError,
   UnauthorizedError,
   type RequestOptions,
   type ReadResourceResult,
@@ -49,6 +50,10 @@ const MCP_CLIENT_OPTIONS = {
   inputRequired: { autoFulfill: true },
 };
 const abortCleanupPromises = new WeakMap<object, Promise<void>>();
+
+function isUnauthorizedHttpError(error: unknown): boolean {
+  return error instanceof UnauthorizedError || (error instanceof SdkHttpError && error.status === 401);
+}
 
 function boundedStderrChunk(chunk: Buffer | string): Buffer {
   if (Buffer.isBuffer(chunk)) {
@@ -406,7 +411,7 @@ export class McpServerManager {
 
       // Check for UnauthorizedError - server requires OAuth. A cleanup failure
       // remains a setup failure rather than being hidden behind needs-auth.
-      if (error instanceof UnauthorizedError && supportsOAuth(definition) && cleanupFailures.length === 0) {
+      if (isUnauthorizedHttpError(error) && supportsOAuth(definition) && cleanupFailures.length === 0) {
         return {
           client,
           transport,
@@ -630,88 +635,99 @@ export class McpServerManager {
 
     // Create request init with headers (Authorization now included for bearer auth)
     const requestInit = Object.keys(headers).length > 0 ? { headers } : undefined;
-
-    // For OAuth servers, create an auth provider
-    let authProvider: McpOAuthProvider | undefined;
-    if (supportsOAuth(definition)) {
-      const oauthConfig = extractOAuthConfig(definition);
-      authProvider = new McpOAuthProvider(
-        serverName,
-        serverUrl,
-        oauthConfig,
-        {
-          onRedirect: async (_authUrl) => {
-            // URL is captured by startAuth, no need to log
-          },
+    const oauthEnabled = supportsOAuth(definition);
+    const implicitOAuth = definition.auth === undefined && oauthEnabled;
+    const createAuthProvider = (): McpOAuthProvider => new McpOAuthProvider(
+      serverName,
+      serverUrl,
+      extractOAuthConfig(definition),
+      {
+        onRedirect: async (_authUrl) => {
+          // URL is captured by startAuth, no need to log
         },
-        this.authStorageOptions,
-        this.oauthRuntime?.signal,
-      );
+      },
+      this.authStorageOptions,
+      this.oauthRuntime?.signal,
+    );
+
+    // Explicit OAuth must check the secure credential store before connecting.
+    let authProvider: McpOAuthProvider | undefined;
+    if (oauthEnabled && !implicitOAuth) {
+      authProvider = createAuthProvider();
     }
 
-    // Try StreamableHTTP first (modern MCP servers)
-    const streamableTransport = new StreamableHTTPClientTransport(url, {
-      requestInit,
-      authProvider,
-    });
-    const probeTransport = traceObserver
-      ? wrapTransportWithMcpTrace(streamableTransport, serverName, "streamable-http", traceObserver)
-      : streamableTransport;
-
-    const testClient = new Client(
-      { name: "pi-mcp-probe", version: "2.1.2" },
-      MCP_CLIENT_OPTIONS,
-    );
-    let probeCleanupAttempted = false;
-    try {
-      await this.connectClientWithAbort(
-        testClient,
-        probeTransport,
-        this.buildRequestOptions(definition, requestSignal),
-        signal,
+    // Try StreamableHTTP first (modern MCP servers). For implicit OAuth, defer
+    // creating the provider until the server proves that authentication is needed.
+    for (;;) {
+      const streamableTransport = new StreamableHTTPClientTransport(url, {
+        requestInit,
+        authProvider,
+      });
+      const probeTransport = traceObserver
+        ? wrapTransportWithMcpTrace(streamableTransport, serverName, "streamable-http", traceObserver)
+        : streamableTransport;
+      const testClient = new Client(
+        { name: "pi-mcp-probe", version: "2.1.2" },
+        MCP_CLIENT_OPTIONS,
       );
-      probeCleanupAttempted = true;
+      let probeCleanupAttempted = false;
       try {
-        await testClient.close();
-      } catch (cleanupError) {
-        throw new AggregateError([cleanupError], "MCP HTTP probe cleanup failed");
-      }
-
-      // StreamableHTTP works - create fresh transport for actual use
-      return new StreamableHTTPClientTransport(url, { requestInit, authProvider });
-    } catch (error) {
-      if (error instanceof AggregateError && (
-        error.message === "MCP connection abort cleanup failed" ||
-        error.message === "MCP HTTP probe cleanup failed"
-      )) {
-        throw error;
-      }
-
-      // StreamableHTTP failed, close through the SDK client and try SSE fallback.
-      // If connectClientWithAbort already owned the close, await that operation
-      // instead of closing the same transport again.
-      if (!probeCleanupAttempted) {
+        await this.connectClientWithAbort(
+          testClient,
+          probeTransport,
+          this.buildRequestOptions(definition, requestSignal),
+          signal,
+        );
         probeCleanupAttempted = true;
         try {
-          await (abortCleanupPromises.get(probeTransport) ?? testClient.close());
+          await testClient.close();
         } catch (cleanupError) {
-          throw new AggregateError([error, cleanupError], "MCP HTTP probe cleanup failed");
+          throw new AggregateError([cleanupError], "MCP HTTP probe cleanup failed");
         }
-      }
 
-      // Host cancellation is not transport capability evidence; do not fall
-      // through to SSE when the caller is trying to cancel the connect.
-      if (signal?.aborted) {
-        throwIfAborted(signal);
-      }
+        // StreamableHTTP works - create fresh transport for actual use
+        return new StreamableHTTPClientTransport(url, { requestInit, authProvider });
+      } catch (error) {
+        if (error instanceof AggregateError && (
+          error.message === "MCP connection abort cleanup failed" ||
+          error.message === "MCP HTTP probe cleanup failed"
+        )) {
+          throw error;
+        }
 
-      // If this was an UnauthorizedError, don't try SSE - the server needs auth
-      if (error instanceof UnauthorizedError) {
-        throw error;
-      }
+        // StreamableHTTP failed, close through the SDK client and try SSE fallback.
+        // If connectClientWithAbort already owned the close, await that operation
+        // instead of closing the same transport twice.
+        if (!probeCleanupAttempted) {
+          probeCleanupAttempted = true;
+          try {
+            await (abortCleanupPromises.get(probeTransport) ?? testClient.close());
+          } catch (cleanupError) {
+            throw new AggregateError([error, cleanupError], "MCP HTTP probe cleanup failed");
+          }
+        }
 
-      // SSE is the legacy transport
-      return new SSEClientTransport(url, { requestInit, authProvider });
+        // Host cancellation is not transport capability evidence; do not fall
+        // through to SSE when the caller is trying to cancel the connect.
+        if (signal?.aborted) {
+          throwIfAborted(signal);
+        }
+
+        // An implicit URL-only server gets a provider only after a real auth
+        // challenge. This keeps unauthenticated servers independent of storage.
+        if (implicitOAuth && !authProvider && isUnauthorizedHttpError(error)) {
+          authProvider = createAuthProvider();
+          continue;
+        }
+
+        // If this was an UnauthorizedError, don't try SSE - the server needs auth
+        if (isUnauthorizedHttpError(error)) {
+          throw error;
+        }
+
+        // SSE is the legacy transport
+        return new SSEClientTransport(url, { requestInit, authProvider });
+      }
     }
   }
 
