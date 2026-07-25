@@ -244,6 +244,7 @@ describe("mcp-callback-server", () => {
       const errorMsg = "access_denied"
 
       const callbackPromise = waitForCallback(state)
+      const rejection = assert.rejects(callbackPromise, /access_denied/)
 
       // Simulate error callback
       const callbackPort = getOAuthCallbackPort()
@@ -256,7 +257,7 @@ describe("mcp-callback-server", () => {
       assert.ok(html.includes("Authorization Failed"))
 
       // Callback promise should reject
-      await assert.rejects(callbackPromise, /access_denied/)
+      await rejection
     })
 
     it("should escape provider-controlled OAuth error details", async () => {
