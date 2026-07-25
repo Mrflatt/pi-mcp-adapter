@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { spawnSync } from "node:child_process";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import type { McpConfig, ServerEntry } from "./types.ts";
@@ -87,14 +88,66 @@ export function toStringRecord(value: unknown): Record<string, string> | undefin
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
+function interpolateSecretExpression(value: string): string {
+  if (value.startsWith("!!")) return interpolateEnvVars(value.slice(1));
+  return value.startsWith("!") ? value : interpolateEnvVars(value);
+}
+
 export function interpolateEnvRecord(values: Record<string, string> | undefined): Record<string, string> | undefined {
   if (!values) return undefined;
 
-  const resolved: Record<string, string> = {};
-  for (const [key, value] of Object.entries(values)) {
-    resolved[key] = interpolateEnvVars(value);
+  return Object.fromEntries(Object.entries(values).map(([key, value]) => [
+    key,
+    interpolateSecretExpression(value),
+  ]));
+}
+
+const COMMAND_SECRET_TIMEOUT_MS = 10_000;
+const COMMAND_SECRET_MAX_OUTPUT_BYTES = 1024 * 1024;
+
+/** Resolve a secret value, executing only a single leading `!` command marker. */
+export function resolveCommandSecret(value: string | undefined, context: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (value.startsWith("!!")) return interpolateEnvVars(value.slice(1));
+  if (!value.startsWith("!")) return interpolateEnvVars(value);
+
+  const result = spawnSync(value.slice(1), {
+    shell: true,
+    encoding: "utf8",
+    timeout: COMMAND_SECRET_TIMEOUT_MS,
+    maxBuffer: COMMAND_SECRET_MAX_OUTPUT_BYTES,
+    stdio: ["ignore", "pipe", "ignore"],
+    windowsHide: true,
+  });
+  if (result.error) {
+    const code = (result.error as NodeJS.ErrnoException).code;
+    const reason = code === "ETIMEDOUT"
+      ? "command timed out after 10 seconds"
+      : code === "ENOBUFS"
+        ? "command output exceeded 1 MiB"
+        : "command failed to start";
+    throw new Error(`Failed to resolve ${context}: ${reason}`);
   }
+  if (result.status !== 0) {
+    throw new Error(`Failed to resolve ${context}: command exited with code ${result.status ?? "unknown"}`);
+  }
+
+  const resolved = result.stdout.trim();
+  if (!resolved) throw new Error(`Failed to resolve ${context}: command returned empty output`);
   return resolved;
+}
+
+/** Resolve command markers in a configured record without mutating the input. */
+export function resolveCommandSecretsRecord(
+  values: Record<string, string> | undefined,
+  context: (key: string) => string,
+): Record<string, string> | undefined {
+  if (!values) return undefined;
+
+  return Object.fromEntries(Object.entries(values).map(([key, value]) => [
+    key,
+    resolveCommandSecret(value, context(key)),
+  ]));
 }
 
 export function resolveServerUrl(definition: Pick<ServerEntry, "url">): string | undefined {
@@ -130,7 +183,7 @@ export function resolveConfigPath(value: string | undefined): string | undefined
 
 export function resolveBearerToken(definition: Pick<ServerEntry, "bearerToken" | "bearerTokenEnv">): string | undefined {
   if (definition.bearerToken !== undefined) {
-    return interpolateEnvVars(definition.bearerToken);
+    return interpolateSecretExpression(definition.bearerToken);
   }
   return definition.bearerTokenEnv ? process.env[definition.bearerTokenEnv] : undefined;
 }

@@ -110,10 +110,15 @@ describe("McpServerManager StreamableHTTP transport", () => {
     });
   });
 
-  it("does not fall back to SSE when optional GET stream returns 405", async () => {
+  it("resolves command-backed HTTP secrets without falling back to SSE on GET 405", async () => {
     const requests: string[] = [];
     const server = http.createServer(async (req, res) => {
       requests.push(`${req.method} ${req.url}`);
+
+      if (req.headers.authorization !== "Bearer command-token" || req.headers["x-command-secret"] !== "command-header") {
+        res.writeHead(401).end("Unauthorized");
+        return;
+      }
 
       if (req.method === "GET") {
         res.writeHead(405, { Allow: "POST" }).end("Method Not Allowed");
@@ -180,6 +185,11 @@ describe("McpServerManager StreamableHTTP transport", () => {
     try {
       const connection = await manager.connect("post-only", {
         url: `http://127.0.0.1:${address.port}/mcp`,
+        auth: "bearer",
+        bearerToken: `!node -e "process.stdout.write('command-token')"`,
+        headers: {
+          "X-Command-Secret": `!node -e "process.stdout.write('command-header')"`,
+        },
       });
 
       for (let attempt = 0; attempt < 20 && !requests.includes("GET /mcp"); attempt++) {

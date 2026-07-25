@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added connection-time command resolution for HTTP bearer tokens and headers, OAuth client secrets, and stdio environment values, with `!!` escaping and fail-closed execution. Thanks @estrizhok for issue #221.
+
 ### Fixed
 - Treated null optional server URLs as absent and cleaned unpublished runtimes after initialization failures, preventing `not_initialized` sessions with surviving MCP children. Thanks @autopeasant for the diagnosis in issue #222.
 - Registered env-selected direct MCP tools before child `agent_start` when their metadata cache must be populated first. Thanks @peedrr for the original report in pi-subagents issue #638 and issue #219.

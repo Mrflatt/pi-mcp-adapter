@@ -32,7 +32,13 @@ import {
   registerElicitationHandler,
   type ServerElicitationConfig,
 } from "./elicitation-handler.ts";
-import { interpolateEnvRecord, resolveBearerToken, resolveConfigPath, resolveServerUrl } from "./utils.ts";
+import {
+  resolveBearerToken,
+  resolveCommandSecret,
+  resolveCommandSecretsRecord,
+  resolveConfigPath,
+  resolveServerUrl,
+} from "./utils.ts";
 import { abortable, throwIfAborted } from "./abort.ts";
 import { combineAbortSignals } from "./runtime-owner.ts";
 import {
@@ -326,7 +332,7 @@ export class McpServerManager {
       const stdioTransport = new StdioClientTransport({
         command,
         args,
-        env: resolveEnv(definition.env),
+        env: resolveEnv(definition.env, name),
         cwd: resolveConfigPath(definition.cwd) ?? this.defaultCwd,
         stderr: definition.debug ? "inherit" : "pipe",
       });
@@ -630,14 +636,30 @@ export class McpServerManager {
     const serverUrl = resolveServerUrl(definition)!;
     const url = new URL(serverUrl);
 
-    // Build headers first (including any bearer token)
-    const headers = resolveHeaders(definition.headers) ?? {};
+    // Resolve secret commands only for this connection attempt, without mutating config.
+    const hasCommandHeader = Object.values(definition.headers ?? {})
+      .some(value => value.startsWith("!") && !value.startsWith("!!"));
+    const headers = resolveCommandSecretsRecord(
+      definition.headers,
+      key => `MCP server "${serverName}" HTTP header "${key}"`,
+    ) ?? {};
 
     // For bearer auth, add the token to headers BEFORE creating requestInit
+    const commandBearer = definition.bearerToken?.startsWith("!") && !definition.bearerToken.startsWith("!!")
+      ? definition.bearerToken
+      : undefined;
     if (definition.auth === "bearer") {
-      const token = resolveBearerToken(definition);
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
+      const token = commandBearer
+        ? resolveCommandSecret(commandBearer, `MCP server "${serverName}" HTTP bearer token`)
+        : resolveBearerToken(definition);
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    if (hasCommandHeader || commandBearer) {
+      try {
+        new Headers(headers);
+      } catch {
+        throw new Error(`Failed to resolve MCP server "${serverName}" HTTP command secret: command returned an invalid header value`);
       }
     }
 
@@ -990,26 +1012,16 @@ export class McpServerManager {
 /**
  * Resolve environment variables with interpolation.
  */
-function resolveEnv(env?: Record<string, string>): Record<string, string> {
-  // Copy process.env, filtering out undefined values
+function resolveEnv(env: Record<string, string> | undefined, serverName: string): Record<string, string> {
   const resolved: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined) {
-      resolved[key] = value;
-    }
+    if (value !== undefined) resolved[key] = value;
   }
-
-  if (!env) return resolved;
-
-  const overrides = interpolateEnvRecord(env);
+  const overrides = resolveCommandSecretsRecord(
+    env,
+    key => `MCP server "${serverName}" stdio env "${key}"`,
+  );
   return overrides ? { ...resolved, ...overrides } : resolved;
-}
-
-/**
- * Resolve headers with environment variable interpolation.
- */
-function resolveHeaders(headers?: Record<string, string>): Record<string, string> | undefined {
-  return interpolateEnvRecord(headers);
 }
 
 function normalizeRequestTimeoutMs(timeoutMs: number | undefined): number | undefined {

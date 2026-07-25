@@ -154,7 +154,10 @@ export function extractOAuthConfig(definition: ServerEntry): McpOAuthConfig {
   }
   if (definition.oauth?.clientSecret !== undefined) {
     if (typeof definition.oauth.clientSecret !== "string") throw new Error("OAuth clientSecret must be a string")
-    config.clientSecret = interpolateEnvVars(definition.oauth.clientSecret)
+    // Preserve command expressions for the provider; interpolation remains eager for ordinary values.
+    config.clientSecret = definition.oauth.clientSecret.startsWith("!")
+      ? definition.oauth.clientSecret
+      : interpolateEnvVars(definition.oauth.clientSecret)
   }
   if (definition.oauth?.scope !== undefined) {
     if (typeof definition.oauth.scope !== "string") throw new Error("OAuth scope must be a string")
@@ -194,13 +197,18 @@ export function extractOAuthConfig(definition: ServerEntry): McpOAuthConfig {
 }
 
 async function probeAuthDiscovery(serverUrl: string, definition?: ServerEntry, signal?: AbortSignal): Promise<AuthDiscovery> {
+  // Discovery must not execute config commands or send their source text.
+  const discoveryHeaders = definition?.headers
+    ? Object.fromEntries(Object.entries(definition.headers).filter(([, value]) => !value.startsWith("!") || value.startsWith("!!")))
+    : undefined
+  const headers = new Headers(interpolateEnvRecord(discoveryHeaders))
+  headers.set("content-type", "application/json")
+
   const controller = new AbortController()
   const discoverySignal = combineAbortSignals(signal, controller.signal)
   const timer = setTimeout(() => controller.abort(), 5000)
 
   try {
-    const headers = new Headers(interpolateEnvRecord(definition?.headers))
-    headers.set("content-type", "application/json")
     headers.set("accept", "application/json, text/event-stream")
 
     const response = await fetch(new URL(serverUrl), {

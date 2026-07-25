@@ -26,6 +26,7 @@ import {
   type StoredTokens,
   type StoredClientInfo,
 } from "./mcp-auth.ts"
+import { resolveCommandSecret } from "./utils.ts"
 
 // Callback server configuration
 const DEFAULT_OAUTH_CALLBACK_PORT = 19876
@@ -169,9 +170,15 @@ export class McpOAuthProvider implements OAuthClientProvider {
       // this pre-registered client with one.
       const stored = await getAuthForUrl(this.serverName, this.serverUrl, this.storageOptions)
       const issuer = stored?.clientInfo?.clientId === this.config.clientId ? stored.clientInfo.issuer : undefined
+      const clientSecret = this.config.clientSecret?.startsWith("!")
+        ? resolveCommandSecret(
+          this.config.clientSecret,
+          `MCP server "${this.serverName}" OAuth clientSecret`,
+        )
+        : this.config.clientSecret
       return {
         client_id: this.config.clientId,
-        client_secret: this.config.clientSecret,
+        client_secret: clientSecret,
         ...(issuer !== undefined ? { issuer } : {}),
       }
     }
