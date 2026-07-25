@@ -167,9 +167,10 @@ describe("proxy auto auth", () => {
       getConnection: vi.fn(() => current),
     };
 
+    const statuses: string[] = [];
     const state = {
       config: {
-        settings: { autoAuth: true, toolPrefix: "mcp" },
+        settings: { autoAuth: true, toolPrefix: "mcp", showStatusIcon: false },
         mcpServers: {
           demo: { url: "https://api.example.com/mcp", auth: "oauth" },
         },
@@ -179,11 +180,12 @@ describe("proxy auto auth", () => {
       toolMetadata: new Map(),
       serverInstructions: new Map(),
       failureTracker: new Map(),
-      ui: { setStatus: vi.fn() },
+      ui: { setStatus: (_key: string, value: string) => statuses.push(value) },
     } as any;
 
     const result = await executeConnect(state, "demo");
 
+    expect(statuses).toContain("MCP: connecting to demo...");
     expect(mocks.authenticate).toHaveBeenCalledWith(
       "demo",
       "https://api.example.com/mcp",
@@ -327,9 +329,10 @@ describe("proxy auto auth", () => {
       decrementInFlight: vi.fn(),
     };
 
+    const statuses: string[] = [];
     const state = {
       config: {
-        settings: { autoAuth: true, toolPrefix: "server" },
+        settings: { autoAuth: true, toolPrefix: "server", showStatusIcon: false },
         mcpServers: {
           demo: { url: "https://api.example.com/mcp", auth: "oauth" },
         },
@@ -349,13 +352,14 @@ describe("proxy auto auth", () => {
         ],
       ]),
       failureTracker: new Map(),
-      ui: { setStatus: vi.fn() },
+      ui: { setStatus: (_key: string, value: string) => statuses.push(value) },
       completedUiSessions: [],
     } as any;
 
     const controller = new AbortController();
     const result = await executeCall(state, "demo_search", { q: "hello" }, "demo", undefined, controller.signal);
 
+    expect(statuses).toContain("MCP: connecting to demo...");
     expect(mocks.authenticate).toHaveBeenCalledWith(
       "demo",
       "https://api.example.com/mcp",

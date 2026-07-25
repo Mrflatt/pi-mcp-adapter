@@ -395,6 +395,8 @@ export interface McpTraceSettings {
 
 export interface McpSettings {
   toolPrefix?: ToolPrefix;
+  /** Show the plug prefix in MCP status and connection text (default: true). Set to false to disable it. */
+  showStatusIcon?: boolean;
   /** Discover detected host-specific MCP configs only when explicitly enabled. */
   hostConfigDiscovery?: HostConfigDiscovery;
   idleTimeout?: number; // minutes, default 10, 0 to disable

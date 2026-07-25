@@ -22,7 +22,7 @@ import {
 import { McpServerManager } from "./server-manager.ts";
 import { buildToolMetadata, totalToolCount } from "./tool-metadata.ts";
 import { UiResourceHandler } from "./ui-resource-handler.ts";
-import { openUrl, parallelLimit, sanitizeTerminalText } from "./utils.ts";
+import { formatMcpStatus, openUrl, parallelLimit, sanitizeTerminalText } from "./utils.ts";
 import { logger } from "./logger.ts";
 import { throwIfAborted } from "./abort.ts";
 import { getAuthStorageOptions } from "./mcp-auth.ts";
@@ -261,7 +261,7 @@ export async function initializeMcp(
       });
 
   if (ui && startupServers.length > 0) {
-    ui.setStatus("mcp", `🔌 MCP: connecting to ${startupServers.length} servers...`);
+    ui.setStatus("mcp", formatMcpStatus(state.config, `connecting to ${startupServers.length} servers...`));
   }
 
   const results = await parallelLimit(startupServers, 10, async ([name, definition]) => {
@@ -523,10 +523,11 @@ export function updateStatusBar(state: McpExtensionState): void {
     const definition = state.config.mcpServers[name];
     return connection.status === "connected" && definition !== undefined && !isServerDisabled(definition);
   }).length;
-  let status = `🔌 MCP: ${enabledCount} ${enabledCount === 1 ? "server" : "servers"} enabled`;
+  let status = `${enabledCount} ${enabledCount === 1 ? "server" : "servers"} enabled`;
   if (connectedCount > 0) status += ` (${connectedCount} connected)`;
   if (disabledCount > 0) status += ` (${disabledCount} disabled)`;
-  ui.setStatus("mcp", ui.theme ? ui.theme.fg("accent", status) : status);
+  const formattedStatus = formatMcpStatus(state.config, status);
+  ui.setStatus("mcp", ui.theme ? ui.theme.fg("accent", formattedStatus) : formattedStatus);
 }
 
 export function getFailureAgeSeconds(state: McpExtensionState, serverName: string): number | null {
@@ -563,7 +564,7 @@ export async function lazyConnect(state: McpExtensionState, serverName: string, 
 
   try {
     if (state.ui) {
-      state.ui.setStatus("mcp", `🔌 MCP: connecting to ${serverName}...`);
+      state.ui.setStatus("mcp", formatMcpStatus(state.config, `connecting to ${serverName}...`));
     }
     const newConnection = await state.manager.connect(serverName, definition, ownedSignal);
     if (newConnection.status === "needs-auth") {

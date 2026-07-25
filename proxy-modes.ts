@@ -12,7 +12,7 @@ import { reconstructPromptMetadata } from "./metadata-cache.ts";
 import { resolveMcpResultContent, transformMcpContent } from "./tool-registrar.ts";
 import { guardMcpOutput, guardedMcpDetails, resolveMcpOutputGuardOptions } from "./mcp-output-guard.ts";
 import { maybeStartUiSession, summarizeUiSessionResult, type UiSessionRuntime } from "./ui-session.ts";
-import { formatAuthRequiredMessage, resolveServerUrl, truncateAtWord } from "./utils.ts";
+import { formatAuthRequiredMessage, formatMcpStatus, resolveServerUrl, truncateAtWord } from "./utils.ts";
 import { authenticate, completeAuthFromInput, startAuth, supportsOAuth } from "./mcp-auth-flow.ts";
 import { SessionRecoveryAuthRequiredError, withSessionRecovery } from "./session-recovery.ts";
 
@@ -663,7 +663,7 @@ export async function executeConnect(state: McpExtensionState, serverName: strin
 
   try {
     if (state.ui) {
-      state.ui.setStatus("mcp", `🔌 MCP: connecting to ${serverName}...`);
+      state.ui.setStatus("mcp", formatMcpStatus(state.config, `connecting to ${serverName}...`));
     }
     const currentConnection = state.manager.getConnection(serverName);
     let connection = currentConnection?.status === "connected"
@@ -948,7 +948,7 @@ export async function executeCall(
 
     try {
       if (state.ui) {
-        state.ui.setStatus("mcp", `🔌 MCP: connecting to ${serverName}...`);
+        state.ui.setStatus("mcp", formatMcpStatus(state.config, `connecting to ${serverName}...`));
       }
       connection = await state.manager.connect(serverName, definition, ownedSignal);
       if (connection.status === "needs-auth") {

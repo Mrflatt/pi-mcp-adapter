@@ -202,6 +202,27 @@ describe("lazy-keep-alive initializeMcp integration", () => {
     expect(consoleError).toHaveBeenCalledWith("MCP: Failed to connect to srv: stderr startup failed");
   });
 
+  it("honors the status icon opt-out during eager startup", async () => {
+    mkdirSync(tempDir, { recursive: true });
+    writeFileSync(mocks.cachePath, JSON.stringify({ version: 1, servers: {} }));
+    mocks.config = {
+      settings: { showStatusIcon: false },
+      mcpServers: { srv: { command: "demo", lifecycle: "eager" } },
+    };
+    const { initializeMcp } = await import("../init.ts");
+    const ui = { setStatus: vi.fn(), notify: vi.fn() };
+
+    await initializeMcp({ getFlag: vi.fn(() => undefined) } as any, {
+      cwd: tempDir,
+      hasUI: true,
+      mode: "tui",
+      ui,
+      signal: undefined,
+    } as any);
+
+    expect(ui.setStatus).toHaveBeenCalledWith("mcp", "MCP: connecting to 1 servers...");
+  });
+
   it("does not record or notify an aborted eager startup", async () => {
     mkdirSync(tempDir, { recursive: true });
     writeFileSync(mocks.cachePath, JSON.stringify({ version: 1, servers: {} }));

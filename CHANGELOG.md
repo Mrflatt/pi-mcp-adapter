@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added the global `settings.showStatusIcon` opt-out for plain `MCP: ...` status and connection text while keeping the plug icon enabled by default. Thanks @vaultboy001 for issue #216.
+
 ### Fixed
 - Deferred implicit OAuth credential-store access until an HTTP server actually challenges for authentication, so unauthenticated remote Streamable HTTP servers work in headless environments. Thanks @vdom-1 for issue #218.
 

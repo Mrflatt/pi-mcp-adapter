@@ -237,6 +237,7 @@ When any enabled server uses `eager` or `keep-alive`, initialization also starts
     "toolPrefix": "server",
     "idleTimeout": 10,
     "requestTimeoutMs": 30000,
+    "showStatusIcon": true,
     "hostConfigDiscovery": "off",
     "oauthDir": ".pi/mcp-oauth",
     "trace": {
@@ -255,6 +256,7 @@ When any enabled server uses `eager` or `keep-alive`, initialization also starts
 | `toolPrefix` | `"server"` (default), `"short"` (strips `-mcp` suffix), `"none"`, or `"mcp"` (prefixes with `mcp__`, using server-mode normalization) |
 | `idleTimeout` | Global idle timeout in minutes (default: 10, 0 to disable) |
 | `requestTimeoutMs` | Global request timeout in milliseconds for live MCP calls (if omitted or `<= 0`, the MCP SDK default timeout is used) |
+| `showStatusIcon` | Show the plug icon in MCP status and connection text (default: `true`). Set to `false` for plain `MCP: ...` text. |
 | `hostConfigDiscovery` | Host-specific config policy: `"off"` (default), `"prompt"` (detect/report only), or `"on"` (explicitly load detected host configs as the lowest-precedence fallback) |
 | `oauthDir` | Legacy OAuth `tokens.json` import directory for this MCP config. Relative paths resolve from the active project cwd. `MCP_OAUTH_DIR` still wins when set. Persistent OAuth credentials are stored in the OS credential store, not this directory. |
 | `directTools` | Global default for all servers (default: false). Per-server overrides this. |

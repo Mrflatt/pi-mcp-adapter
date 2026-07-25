@@ -190,22 +190,26 @@ describe("lazy-keep-alive lifecycle", () => {
     let current: typeof connection | undefined;
     const manager = {
       getConnection: vi.fn(() => current),
+      getAllConnections: vi.fn(() => current ? new Map([["srv", current]]) : new Map()),
       connect: vi.fn(async () => {
         current = connection;
         return connection;
       }),
       isIdle: vi.fn(() => false),
     };
+    const setStatus = vi.fn();
     const state = {
-      config: { settings: {}, mcpServers: { srv: makeDefinition("lazy-keep-alive") } },
+      config: { settings: { showStatusIcon: false }, mcpServers: { srv: makeDefinition("lazy-keep-alive") } },
       manager,
       lifecycle: new McpLifecycleManager(manager as never),
+      ui: { setStatus },
       toolMetadata: new Map(),
       serverInstructions: new Map(),
       failureTracker: new Map(),
     } as never;
 
     await lazyConnect(state, "srv");
+    expect(setStatus).toHaveBeenCalledWith("mcp", "MCP: connecting to srv...");
     current = undefined;
     await (state as any).lifecycle.checkConnections();
 

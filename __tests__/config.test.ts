@@ -29,7 +29,7 @@ describe("config discovery", () => {
     const realProject = realpathSync(project);
 
     writeJson(join(home, ".config", "mcp", "mcp.json"), {
-      settings: { idleTimeout: 5, requestTimeoutMs: 1500 },
+      settings: { idleTimeout: 5, requestTimeoutMs: 1500, showStatusIcon: true },
       mcpServers: {
         shared: { command: "generic" },
         genericOnly: { command: "generic-only" },
@@ -53,7 +53,7 @@ describe("config discovery", () => {
     });
 
     writeJson(join(project, ".pi", "mcp.json"), {
-      settings: { autoAuth: true, oauthDir: ".pi/oauth" },
+      settings: { autoAuth: true, oauthDir: ".pi/oauth", showStatusIcon: false },
       mcpServers: {
         shared: { command: "project-pi" },
         projectPiOnly: { command: "project-pi-only" },
@@ -71,6 +71,7 @@ describe("config discovery", () => {
     expect(config.settings).toEqual({
       idleTimeout: 5,
       requestTimeoutMs: 1500,
+      showStatusIcon: false,
       toolPrefix: "none",
       directTools: true,
       autoAuth: true,
