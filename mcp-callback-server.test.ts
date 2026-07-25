@@ -265,6 +265,7 @@ describe("mcp-callback-server", () => {
 
       const state = "test-state-error-escaping"
       const callbackPromise = waitForCallback(state)
+      const rejection = assert.rejects(callbackPromise, /<script>alert\("x"\)<\/script>&reason=bad/)
       const callbackPort = getOAuthCallbackPort()
       const description = `<script>alert("x")</script>&reason=bad`
       const response = await fetch(
@@ -275,7 +276,7 @@ describe("mcp-callback-server", () => {
       const html = await response.text()
       assert.ok(!html.includes("<script>"))
       assert.ok(html.includes("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;&amp;reason=bad"))
-      await assert.rejects(callbackPromise, /<script>alert\("x"\)<\/script>&reason=bad/)
+      await rejection
     })
 
     it("should not reflect OAuth error details for invalid state", async () => {
