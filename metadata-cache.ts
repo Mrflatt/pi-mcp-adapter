@@ -116,18 +116,48 @@ export function isServerCacheValid(
   return true;
 }
 
+export function parseDirectToolSelectors(selectors: string[]): {
+  servers: Set<string>;
+  tools: Map<string, Set<string>>;
+} {
+  const servers = new Set<string>();
+  const tools = new Map<string, Set<string>>();
+
+  for (let selector of selectors) {
+    selector = selector.replace(/\/+$/, "");
+    if (selector.includes("/")) {
+      const [server, tool] = selector.split("/", 2);
+      if (server && tool) {
+        const serverTools = tools.get(server) ?? new Set<string>();
+        serverTools.add(tool);
+        tools.set(server, serverTools);
+      } else if (server) {
+        servers.add(server);
+      }
+    } else if (selector) {
+      servers.add(selector);
+    }
+  }
+
+  return { servers, tools };
+}
+
 export function getMissingConfiguredDirectToolServers(
   config: McpConfig,
   cache: MetadataCache | null,
+  envOverride?: string[],
 ): string[] {
   const missing: string[] = [];
   const globalDirect = config.settings?.directTools;
+  const envSelection = envOverride ? parseDirectToolSelectors(envOverride) : null;
 
   for (const [serverName, definition] of Object.entries(config.mcpServers)) {
     if (isServerDisabled(definition)) continue;
-    const hasDirectTools = definition.directTools !== undefined
-      ? !!definition.directTools
-      : !!globalDirect;
+    const hasDirectTools = envSelection
+      ? envSelection.servers.has(serverName) || envSelection.tools.has(serverName)
+      : definition.directTools !== undefined
+        ? !!definition.directTools
+        : !!globalDirect;
 
     if (!hasDirectTools) continue;
 

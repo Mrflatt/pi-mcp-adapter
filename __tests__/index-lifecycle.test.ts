@@ -297,6 +297,43 @@ describe("mcpAdapter session lifecycle", () => {
     expect(directTool.parameters).not.toHaveProperty("additionalProperties");
   });
 
+  it("waits for env-selected cold-cache tools before session startup completes", async () => {
+    process.env.MCP_DIRECT_TOOLS = "demo/search";
+    const config = {
+      mcpServers: {
+        demo: { command: "demo-server" },
+      },
+    };
+    const state = createState();
+    state.config = config;
+    const initialization = createDeferred(state);
+    mocks.loadMcpConfig.mockReturnValue(config);
+    mocks.getMissingConfiguredDirectToolServers.mockReturnValue(["demo"]);
+    mocks.initializeMcp.mockReturnValue(initialization.promise);
+
+    const { default: mcpAdapter } = await import("../index.ts");
+    const { api, handlers } = createPi();
+    mcpAdapter(api);
+
+    let sessionStarted = false;
+    const sessionStart = Promise.resolve(handlers.get("session_start")?.({}, { hasUI: false }))
+      .then(() => { sessionStarted = true; });
+    await new Promise(resolve => setImmediate(resolve));
+
+    expect(sessionStarted).toBe(false);
+
+    mocks.resolveDirectTools.mockReturnValue([{
+      serverName: "demo",
+      originalName: "search",
+      prefixedName: "demo_search",
+      description: "Search demo",
+    }]);
+    initialization.resolve(state);
+    await sessionStart;
+
+    expect(api.registerTool).toHaveBeenCalledWith(expect.objectContaining({ name: "demo_search" }));
+  });
+
   it("hot-loads direct tools after session initialization refreshes metadata", async () => {
     const config = {
       mcpServers: {

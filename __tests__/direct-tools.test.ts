@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { buildProxyDescription, resolveDirectTools } from "../direct-tools.ts";
-import { computeServerHash, isServerCacheValid, type MetadataCache } from "../metadata-cache.ts";
+import {
+  computeServerHash,
+  getMissingConfiguredDirectToolServers,
+  isServerCacheValid,
+  type MetadataCache,
+} from "../metadata-cache.ts";
 import { buildToolMetadata } from "../tool-metadata.ts";
 import { formatToolName } from "../types.ts";
 import type { McpConfig } from "../types.ts";
@@ -305,6 +310,36 @@ describe("metadata cache hashing", () => {
     process.env.MCP_HASH_TOKEN = "token-two";
 
     expect(isServerCacheValid(entry, definition)).toBe(false);
+  });
+});
+
+describe("direct tool metadata bootstrap", () => {
+  it("includes env-selected servers without config-level direct tool settings", () => {
+    const config: McpConfig = {
+      mcpServers: {
+        selected: { command: "selected-server" },
+        cached: { command: "cached-server" },
+        other: { command: "other-server" },
+        disabled: { command: "disabled-server", disabled: true },
+      },
+    };
+    const cache: MetadataCache = {
+      version: 1,
+      servers: {
+        cached: {
+          configHash: computeServerHash(config.mcpServers.cached),
+          cachedAt: Date.now(),
+          tools: [],
+          resources: [],
+        },
+      },
+    };
+
+    expect(getMissingConfiguredDirectToolServers(
+      config,
+      cache,
+      ["selected/search", "cached", "disabled"],
+    )).toEqual(["selected"]);
   });
 });
 

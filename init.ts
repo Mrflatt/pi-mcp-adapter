@@ -334,7 +334,8 @@ export async function initializeMcp(
   const envDirect = process.env.MCP_DIRECT_TOOLS;
   if (envDirect !== "__none__") {
     const currentCache = loadMetadataCache();
-    const missingCacheServers = getMissingConfiguredDirectToolServers(config, currentCache);
+    const envDirectToolOverride = envDirect?.split(",").map(selector => selector.trim()).filter(Boolean);
+    const missingCacheServers = getMissingConfiguredDirectToolServers(config, currentCache, envDirectToolOverride);
 
     if (missingCacheServers.length > 0) {
       const bootstrapResults = await parallelLimit(

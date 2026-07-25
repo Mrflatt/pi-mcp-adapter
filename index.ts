@@ -254,7 +254,7 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
     type: "string",
   });
 
-  function startInitialization(ctx: ExtensionContext, owner: McpRuntimeOwner, oauthRuntime: McpOAuthRuntime, generation: number, staleReason: string): void {
+  function startInitialization(ctx: ExtensionContext, owner: McpRuntimeOwner, oauthRuntime: McpOAuthRuntime, generation: number, staleReason: string): Promise<void> {
     const promise = initializeMcp(pi, ctx, owner, {
       ...(programmaticConfig || options.configPath !== undefined
         ? { configPath: earlyConfigPath, config: sessionConfig }
@@ -264,7 +264,7 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
     });
     initPromise = promise;
 
-    promise.then(async (nextState) => {
+    return promise.then(async (nextState) => {
       if (!owner.isActive() || generation !== lifecycleGeneration || initPromise !== promise) {
         try {
           await shutdownState(nextState, staleReason);
@@ -347,7 +347,17 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
 
     if (generation !== lifecycleGeneration || !owner.isActive()) return;
 
-    startInitialization(ctx, owner, oauthRuntime, generation, "stale_session_start");
+    const initialization = startInitialization(ctx, owner, oauthRuntime, generation, "stale_session_start");
+    if (envRaw !== undefined && envRaw !== "__none__") {
+      const missingEnvDirectTools = getMissingConfiguredDirectToolServers(
+        earlyConfig,
+        loadMetadataCache(),
+        envDirectToolOverride,
+      );
+      if (missingEnvDirectTools.length > 0) {
+        await initialization;
+      }
+    }
   });
 
   pi.on("session_shutdown", async () => {
@@ -726,7 +736,11 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
   }
 
   function syncProxyTool(config: McpConfig, cache: MetadataCache | null, directSpecs: DirectToolSpec[]): void {
-    const missingConfiguredDirectToolServers = getMissingConfiguredDirectToolServers(config, cache);
+    const missingConfiguredDirectToolServers = getMissingConfiguredDirectToolServers(
+      config,
+      cache,
+      envRaw === undefined || envRaw === "__none__" ? undefined : envDirectToolOverride,
+    );
     const shouldRegisterProxyTool =
       config.settings?.disableProxyTool !== true
       || directSpecs.length === 0

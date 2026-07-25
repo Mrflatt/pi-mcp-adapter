@@ -5,7 +5,7 @@ import type { DirectToolSpec, McpConfig, McpContent, ToolPrefix } from "./types.
 import type { MetadataCache } from "./metadata-cache.ts";
 import { lazyConnect, getFailureAgeSeconds, clearFailure } from "./init.ts";
 import { abortable, throwIfAborted } from "./abort.ts";
-import { isServerCacheValid } from "./metadata-cache.ts";
+import { isServerCacheValid, parseDirectToolSelectors } from "./metadata-cache.ts";
 export { getMissingConfiguredDirectToolServers } from "./metadata-cache.ts";
 import { formatSchema } from "./tool-metadata.ts";
 import { resolveMcpResultContent, transformMcpContent } from "./tool-registrar.ts";
@@ -114,25 +114,7 @@ export function resolveDirectTools(
 
   const seenNames = new Set<string>();
 
-  const envServers = new Set<string>();
-  const envTools = new Map<string, Set<string>>();
-  if (envOverride) {
-    for (let item of envOverride) {
-      item = item.replace(/\/+$/, "");
-      if (item.includes("/")) {
-        const [server, tool] = item.split("/", 2);
-        if (server && tool) {
-          if (!envTools.has(server)) envTools.set(server, new Set());
-          envTools.get(server)!.add(tool);
-        } else if (server) {
-          envServers.add(server);
-        }
-      } else if (item) {
-        envServers.add(item);
-      }
-    }
-  }
-
+  const envSelection = envOverride ? parseDirectToolSelectors(envOverride) : null;
   const globalDirect = config.settings?.directTools;
 
   for (const [serverName, definition] of Object.entries(config.mcpServers)) {
@@ -142,11 +124,11 @@ export function resolveDirectTools(
 
     let toolFilter: true | string[] | false = false;
 
-    if (envOverride) {
-      if (envServers.has(serverName)) {
+    if (envSelection) {
+      if (envSelection.servers.has(serverName)) {
         toolFilter = true;
-      } else if (envTools.has(serverName)) {
-        toolFilter = [...envTools.get(serverName)!];
+      } else if (envSelection.tools.has(serverName)) {
+        toolFilter = [...envSelection.tools.get(serverName)!];
       }
     } else {
       if (definition.directTools !== undefined) {
