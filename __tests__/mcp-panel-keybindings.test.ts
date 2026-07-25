@@ -47,6 +47,9 @@ function createEmptyDiscovery(): McpDiscoverySummary {
     hasSharedServers: false,
     hasPiOwnedServers: false,
     totalServerCount: 0,
+    hostConfigs: [],
+    hostConfigDiscovery: "off",
+    conflicts: [],
     fingerprint: "test",
     repoPrompt: { configured: false },
   };
@@ -181,6 +184,31 @@ describe("mcp-setup-panel custom keybindings", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(callbacks.scaffoldProjectConfig).toHaveBeenCalledTimes(1);
+    panel.dispose();
+  });
+
+  it("shows the actual config precedence including .agents paths", () => {
+    const panel = createMcpSetupPanel(
+      createEmptyDiscovery(),
+      createSetupCallbacks(),
+      {
+        mode: "setup",
+        onboardingState: { version: 1, sharedConfigHintShown: false, setupCompleted: false },
+      },
+      { requestRender: () => {} },
+      () => {},
+    );
+
+    // Actions for this discovery: view-example, scaffold-project, show-precedence, close.
+    panel.handleInput(DOWN);
+    panel.handleInput(DOWN);
+    const output = panel.render(100).join("\n");
+
+    expect(output).toContain("Read order (later entries win):");
+    expect(output).toContain("0. detected host configs (opt-in lowest-precedence fallback)");
+    expect(output).toContain("2. ~/.agents/mcp.json");
+    expect(output).toContain("3. ~/.agents/mcp/mcp.json");
+    expect(output).toContain("6. .pi/mcp.json");
     panel.dispose();
   });
 });

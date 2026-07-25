@@ -77,6 +77,34 @@ describe("cli init helper", () => {
     expect(existsSync(join(home, ".pi", "agent", "mcp.json"))).toBe(false);
   });
 
+  it("loads existing Pi config as JSONC and lists .agents standard paths", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-cli-jsonc-home-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-mcp-cli-jsonc-project-"));
+    process.env.HOME = home;
+    process.chdir(project);
+
+    mkdirSync(join(home, ".pi", "agent"), { recursive: true });
+    writeFileSync(join(home, ".pi", "agent", "mcp.json"), `{
+      // Existing config stays editable by humans.
+      "imports": ["vscode",],
+      "mcpServers": {
+        "existing": { "command": "existing" },
+      },
+    }`, "utf-8");
+
+    const logs: string[] = [];
+    const errors: string[] = [];
+    const { main } = await import("../cli.js");
+    const exitCode = await main(["init", "--dry-run"], (line) => logs.push(line), (line) => errors.push(line));
+
+    expect(exitCode).toBe(0);
+    expect(errors).toEqual([]);
+    const output = logs.join("\n");
+    expect(output).toContain(`User-global .agents MCP: ${join(home, ".agents", "mcp.json")}`);
+    expect(output).toContain(`User-global .agents nested MCP: ${join(home, ".agents", "mcp", "mcp.json")}`);
+    expect(output).toContain("No Pi config changes needed.");
+  });
+
   it("explicitly enables host fallback discovery without changing external files", async () => {
     const home = mkdtempSync(join(tmpdir(), "pi-mcp-cli-discovery-home-"));
     const project = mkdtempSync(join(tmpdir(), "pi-mcp-cli-discovery-project-"));

@@ -488,12 +488,14 @@ export class McpSetupPanel {
         ]);
       case "show-precedence":
         return this.formatPreview([
-          "Read order:",
-          "1. detected host configs (only when explicitly enabled)",
-          "2. ~/.config/mcp/mcp.json",
-          "3. <Pi agent dir>/mcp.json",
-          "4. .mcp.json",
-          "5. .pi/mcp.json",
+          "Read order (later entries win):",
+          "0. detected host configs (opt-in lowest-precedence fallback)",
+          "1. ~/.config/mcp/mcp.json",
+          "2. ~/.agents/mcp.json",
+          "3. ~/.agents/mcp/mcp.json",
+          "4. <Pi agent dir>/mcp.json",
+          "5. .mcp.json",
+          "6. .pi/mcp.json",
           `Host discovery: ${this.discovery.hostConfigDiscovery}. Conflicts reported: ${this.discovery.conflicts.length}.`,
           ...this.discovery.conflicts.slice(0, 8).map((conflict) =>
             `${conflict.serverName}: ${conflict.sources.map((source) => source.path).join(" -> ")} (winner: ${conflict.winner.path})`,

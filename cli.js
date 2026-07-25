@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { pathToFileURL } from "node:url";
+import stripJsonComments from "strip-json-comments";
 
 const HOME = os.homedir();
 
@@ -18,6 +19,8 @@ const AGENT_DIR = process.env.PI_CODING_AGENT_DIR?.trim()
   : path.join(HOME, ".pi", "agent");
 const PI_CONFIG_PATH = path.join(AGENT_DIR, "mcp.json");
 const GENERIC_GLOBAL_CONFIG_PATH = path.join(HOME, ".config", "mcp", "mcp.json");
+const AGENTS_GLOBAL_CONFIG_PATH = path.join(HOME, ".agents", "mcp.json");
+const AGENTS_NESTED_GLOBAL_CONFIG_PATH = path.join(HOME, ".agents", "mcp", "mcp.json");
 const PROJECT_CONFIG_PATH = path.resolve(process.cwd(), ".mcp.json");
 const PROJECT_PI_CONFIG_PATH = path.resolve(process.cwd(), ".pi", "mcp.json");
 
@@ -52,7 +55,7 @@ function printHelp(log = console.log) {
 }
 
 function readJsonFile(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, "utf-8"));
+  return JSON.parse(stripJsonComments(fs.readFileSync(filePath, "utf-8"), { trailingCommas: true }));
 }
 
 function loadPiConfig() {
@@ -95,6 +98,8 @@ function printDiscovery(log, imports) {
 
   const paths = [
     ["User-global standard MCP", GENERIC_GLOBAL_CONFIG_PATH],
+    ["User-global .agents MCP", AGENTS_GLOBAL_CONFIG_PATH],
+    ["User-global .agents nested MCP", AGENTS_NESTED_GLOBAL_CONFIG_PATH],
     ["Pi global override", PI_CONFIG_PATH],
     ["Project standard MCP", PROJECT_CONFIG_PATH],
     ["Project Pi override", PROJECT_PI_CONFIG_PATH],
