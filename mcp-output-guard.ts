@@ -368,7 +368,8 @@ function asRecord(value: unknown): Recordish | undefined {
 
 function safeStringify(value: unknown): string {
   try {
-    return JSON.stringify(value, null, 2);
+    // The output guard measures and spills raw MCP results; it does not render this JSON for the model.
+    return JSON.stringify(value);
   } catch {
     return String(value);
   }
