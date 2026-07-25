@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.13.0] - 2026-07-25
+
 ### Added
 - Added a versioned, sanitized MCP runtime status snapshot on Pi's shared event bus for extensions, without connecting lazy servers or exposing SDK internals. Thanks Ludev (@ludevdot) for issue #110.
 - Added opt-in host-specific MCP config discovery with source/provenance and conflict reporting. Standard shared and Pi-owned config precedence remains unchanged, and external host files are never written or silently executed. Thanks @lsmir2 for issue #169.
