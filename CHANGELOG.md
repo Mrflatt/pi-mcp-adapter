@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added `settings.freezeDirectTools` to keep direct MCP tool registration stable after initial sync while preserving explicit reconnect refreshes. Thanks @ddfourtwo for PR #254.
 - Added best-effort Linux OAuth credential recovery when Pi inherits a revoked session keyring, allowing explicit re-authentication through a fresh `keyctl` session helper. Thanks @anthod0 for issue #248 and the validation prototype.
+- Added opt-in `mcp_code` plain-JavaScript codemode for chaining MCP calls from tool-restricted subagents.
 - Added ranked, paginated MCP tool search and did-you-mean suggestions for unresolved tool names.
 - Added optional global and per-server `approveTools` patterns that require interactive approval before matching proxy, direct, resource, or iframe-originated MCP tool calls.
 

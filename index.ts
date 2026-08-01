@@ -17,6 +17,7 @@ import { createMcpDirectToolCallRenderer, renderMcpProxyToolCall, renderMcpToolR
 import { toolErrorOverride } from "./error-signal.ts";
 import { createMcpRuntimeOwner, createOwnedUi, isAbortError, type McpRuntimeOwner } from "./runtime-owner.ts";
 import { publishMcpStatusShutdown } from "./mcp-status.ts";
+import { runMcpCode } from "./mcp-code.ts";
 
 export type { McpAdapterOptions } from "./types.ts";
 export {
@@ -605,6 +606,52 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
       }
     },
   });
+
+  if (earlyConfig.settings?.codeMode === true) {
+    (pi.registerTool as (tool: unknown) => unknown)({
+      name: "mcp_code",
+      label: "MCP Code",
+      description: "Run plain JavaScript that can call MCP tools through the flat tools.<prefixedToolName>(args) proxy. For tool names with hyphens or other non-identifier characters, use bracket syntax: tools[\"server_tool-name\"](args).",
+      promptSnippet: "Run plain JavaScript to chain and filter MCP tool calls in one request",
+      parameters: Type.Object({
+        code: Type.String({ description: "Plain JavaScript to execute. Use tools.<prefixedToolName>(args) and emit(value)." }),
+        // Raw JSON schema: host TypeBox shims may omit Type.Number (see index-lifecycle shim test).
+        timeoutMs: Type.Optional({ type: "number", minimum: 1, description: "Execution timeout in milliseconds (default: 30000)" } as any),
+      }),
+      renderResult: renderMcpToolResult,
+      async execute(_toolCallId, params: { code: string; timeoutMs?: number }, signal) {
+        const executeOwner = currentOwner;
+        if (!state && initPromise) {
+          try {
+            const initialized = await awaitWithTimeout(initPromise, INIT_WAIT_TIMEOUT_MS);
+            if (initialized === INIT_WAIT_TIMED_OUT) {
+              return {
+                content: [{ type: "text" as const, text: "MCP initialization is still in progress. Try again shortly." }],
+                details: { mode: "code", error: "init_timeout", timeoutMs: INIT_WAIT_TIMEOUT_MS },
+              };
+            }
+            executeOwner?.throwIfInactive();
+            state = initialized;
+          } catch (error) {
+            if (executeOwner && isAbortError(error, executeOwner.signal)) throw error;
+            const message = error instanceof Error ? error.message : String(error);
+            return {
+              content: [{ type: "text" as const, text: `MCP initialization failed: ${message}` }],
+              details: { mode: "code", error: "init_failed", message },
+            };
+          }
+        }
+        if (!state) {
+          return {
+            content: [{ type: "text" as const, text: "MCP not initialized" }],
+            details: { mode: "code", error: "not_initialized" },
+          };
+        }
+        executeOwner?.throwIfInactive();
+        return runMcpCode(state, params.code, params.timeoutMs, getPiTools, signal);
+      },
+    });
+  }
 
   function registerProxyTool(description: string): void {
     (pi.registerTool as (tool: unknown) => unknown)({

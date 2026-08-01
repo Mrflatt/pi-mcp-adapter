@@ -262,6 +262,7 @@ When any enabled server uses `eager` or `keep-alive`, initialization also starts
     "showStatusIcon": true,
     "mcpFooterStatus": "full",
     "hostConfigDiscovery": "off",
+    "codeMode": true,
     "oauthDir": ".pi/mcp-oauth",
     "trace": {
       "enabled": true,
@@ -286,6 +287,7 @@ When any enabled server uses `eager` or `keep-alive`, initialization also starts
 | `mcpServers.<name>.oauth.authorizationParams` | Extra authorization URL parameters for provider-specific OAuth extensions. Flow-owned parameters such as `client_id`, `redirect_uri`, `scope`, `state`, `code_challenge`, `response_type`, and `resource` cannot be overridden. |
 | `directTools` | Global default for all servers (default: false). Per-server overrides this. |
 | `freezeDirectTools` | Keep direct-tool registration stable after the initial sync so automatic reconnects and list-change notifications do not rebuild the system prompt. Use `mcp({ connect: "server" })` or `/mcp reconnect <server>` to refresh deliberately. Default: false. |
+| `codeMode` | Register the MCP-only `mcp_code` plain-JavaScript tool (default: false). |
 | `disableProxyTool` | Hide the `mcp` proxy tool once configured direct tools are fully available from cache. |
 | `autoAuth` | Auto-run OAuth on `connect`/tool calls when a server needs auth, then retry once (default: false). |
 | `sampling` | Allow MCP servers to sample through Pi models, honoring `modelPreferences.hints` before current/default fallback (default: true when UI approval is available). |
@@ -315,6 +317,22 @@ Tune the limits with the object form:
 ```
 
 Set `"outputGuard": false` — or the env kill switch `MCP_OUTPUT_GUARD=0` — to disable the guard and restore raw output behavior. Saved temp files are created with mode `0600` under the system temp directory and are not cleaned up automatically; note that spilled MCP output may contain sensitive data.
+
+### MCP Code Mode
+
+Set `settings.codeMode` to `true` to register `mcp_code({ code, timeoutMs? })`. It runs plain JavaScript with three capabilities: a flat `tools.<prefixedToolName>(args)` proxy, `emit(value)`, and a captured `console`. MCP calls return `{ ok: true, data }` or `{ ok: false, error: { code, message } }`, so a failed call does not stop the rest of the script. Emitted values and console output appear before the script's final return value, and the combined result uses the normal MCP output guard. The default timeout is 30 seconds.
+
+```js
+const first = await tools.github_search_issues({ query: "is:open label:bug" });
+if (!first.ok) return first;
+const selected = first.data.content.filter((item) => item.type === "text");
+emit({ searched: true });
+return selected;
+```
+
+For a tool-restricted subagent, enable code mode in the adapter configuration, then launch the child Pi with its tool allowlist set to `["mcp_code"]`. Have the parent discover MCP tool names with `mcp({ search: "..." })` and include the relevant prefixed names in the child's task; the child can then loop, filter, and chain those MCP calls without filesystem, shell, or edit tools. The adapter's ordinary lazy connection, authentication, output guard, abort handling, and approval gates still apply to every call.
+
+`node:vm` is **NOT a security boundary**. This feature is capability shaping only; do not run untrusted code as though it were sandboxed. `mcp_code` is also distinct from Pi's code-mode skill: Pi's skill batches general Pi tools, while `mcp_code` exposes MCP calls only and can be the child's sole tool.
 
 ### MCP Prompts
 
