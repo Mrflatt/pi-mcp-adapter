@@ -8,6 +8,7 @@ import { lazyConnect, markKeepAliveAfterConnect, notifyToolMetadataUpdated, upda
 import { abortable, throwIfAborted } from "./abort.ts";
 import { combineAbortSignals, isAbortError } from "./runtime-owner.ts";
 import { buildToolMetadata, getToolNames, findToolByName, formatSchema } from "./tool-metadata.ts";
+import { renderTsShape } from "./ts-shape.ts";
 import { reconstructPromptMetadata } from "./metadata-cache.ts";
 import { resolveMcpResultContent, transformMcpContent } from "./tool-registrar.ts";
 import { guardMcpOutput, guardedMcpDetails, resolveMcpOutputGuardOptions } from "./mcp-output-guard.ts";
@@ -428,7 +429,8 @@ export function executeDescribe(state: McpExtensionState, toolName: string): Pro
   text += `\n${toolMeta.description || "(no description)"}\n`;
 
   if (toolMeta.inputSchema && !toolMeta.resourceUri) {
-    text += `\nParameters:\n${formatSchema(toolMeta.inputSchema)}`;
+    const shape = renderTsShape(toolMeta.inputSchema);
+    text += shape === null ? `\nParameters:\n${formatSchema(toolMeta.inputSchema)}` : `\nShape:\n${shape}`;
   } else if (toolMeta.resourceUri) {
     text += `\nNo parameters required (resource tool).`;
   } else {
@@ -528,7 +530,10 @@ export function executeSearch(
       text += `${match.tool.name}${approvalMarker}\n`;
       text += `  ${match.tool.description || "(no description)"}\n`;
       if (match.tool.inputSchema && !match.tool.resourceUri) {
-        text += `\n  Parameters:\n${formatSchema(match.tool.inputSchema, "    ")}\n`;
+        const shape = renderTsShape(match.tool.inputSchema);
+        text += shape === null
+          ? `\n  Parameters:\n${formatSchema(match.tool.inputSchema, "    ")}\n`
+          : `\n  Shape:\n${shape.split("\n").map(line => `    ${line}`).join("\n")}\n`;
       } else if (match.tool.resourceUri) {
         text += "  No parameters (resource tool).\n";
       }

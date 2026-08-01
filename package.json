@@ -63,6 +63,7 @@
     "abort.ts",
     "runtime-owner.ts",
     "tool-metadata.ts",
+    "ts-shape.ts",
     "search-ranking.ts",
     "tool-approval.ts",
     "init.ts",
