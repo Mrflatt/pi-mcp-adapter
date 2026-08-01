@@ -269,6 +269,7 @@ export async function maybeStartUiSession(
       resource,
       manager: state.manager,
       config: state.config,
+      state,
       onNeedsAuth: request.onNeedsAuth,
       consentManager: state.consentManager,
       hostContext,

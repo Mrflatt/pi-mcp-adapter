@@ -16,6 +16,7 @@ import { formatAuthRequiredMessage, formatMcpStatus, resolveServerUrl, truncateA
 import { authenticate, completeAuthFromInput, startAuth, supportsOAuth } from "./mcp-auth-flow.ts";
 import { SessionRecoveryAuthRequiredError, withSessionRecovery } from "./session-recovery.ts";
 import { paginate, rankSuggestions, rankToolMatches } from "./search-ranking.ts";
+import { ensureToolCallApproved, isToolCallApprovalRequired } from "./tool-approval.ts";
 
 type ProxyToolResult = AgentToolResult<Record<string, unknown>>;
 
@@ -416,7 +417,10 @@ export function executeDescribe(state: McpExtensionState, toolName: string): Pro
     };
   }
 
-  let text = `${toolMeta.name}\n`;
+  const approvalMarker = isToolCallApprovalRequired(state.config, serverName, toolMeta)
+    ? " (requires approval)"
+    : "";
+  let text = `${toolMeta.name}${approvalMarker}\n`;
   text += `Server: ${serverName}\n`;
   if (toolMeta.resourceUri) {
     text += `Type: Resource (reads from ${toolMeta.resourceUri})\n`;
@@ -517,8 +521,11 @@ export function executeSearch(
 
   let text = `Found ${page.total} tool${page.total === 1 ? "" : "s"} matching "${query}":\n\n`;
   for (const match of page.items) {
+    const approvalMarker = isToolCallApprovalRequired(state.config, match.server, match.tool)
+      ? " (requires approval)"
+      : "";
     if (showSchemas) {
-      text += `${match.tool.name}\n`;
+      text += `${match.tool.name}${approvalMarker}\n`;
       text += `  ${match.tool.description || "(no description)"}\n`;
       if (match.tool.inputSchema && !match.tool.resourceUri) {
         text += `\n  Parameters:\n${formatSchema(match.tool.inputSchema, "    ")}\n`;
@@ -527,7 +534,7 @@ export function executeSearch(
       }
       text += "\n";
     } else {
-      text += `- ${match.tool.name}`;
+      text += `- ${match.tool.name}${approvalMarker}`;
       if (match.tool.description) text += ` - ${truncateAtWord(match.tool.description, 50)}`;
       text += "\n";
     }
@@ -998,7 +1005,6 @@ export async function executeCall(
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const ownedSignal = combineAbortSignals(state.owner?.signal, signal);
       if (!isAbortError(error, ownedSignal)) recordFailure(state, serverName, message);
       updateStatusBar(state);
       return {
@@ -1010,6 +1016,23 @@ export async function executeCall(
 
   if (isServerDisabled(state.config.mcpServers[serverName])) {
     return disabledCallResult(serverName, toolMeta);
+  }
+
+  const approval = await ensureToolCallApproved(state, serverName, toolMeta, args, ownedSignal);
+  if (approval.ok === false) {
+    const denied = approval.reason === "denied";
+    const message = denied
+      ? `The user declined approval to run MCP tool "${toolMeta.originalName}" on server "${serverName}".`
+      : `MCP tool "${toolMeta.originalName}" on server "${serverName}" is approval-gated and requires an interactive session.`;
+    return {
+      content: [{ type: "text" as const, text: message }],
+      details: {
+        mode: "call",
+        error: denied ? "approval_denied" : "approval_required",
+        server: serverName,
+        tool: toolMeta.originalName,
+      },
+    };
   }
 
   let uiSession: UiSessionRuntime | null = null;

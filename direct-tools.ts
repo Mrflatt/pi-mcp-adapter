@@ -17,6 +17,7 @@ import { authenticate, supportsOAuth } from "./mcp-auth-flow.ts";
 import { formatAuthRequiredMessage, resolveServerUrl, truncateAtWord } from "./utils.ts";
 import { SessionRecoveryAuthRequiredError, withSessionRecovery } from "./session-recovery.ts";
 import { combineAbortSignals, isAbortError } from "./runtime-owner.ts";
+import { ensureToolCallApproved } from "./tool-approval.ts";
 
 const BUILTIN_NAMES = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "mcp"]);
 const INSTRUCTIONS_SNIPPET_LENGTH = 150;
@@ -369,6 +370,30 @@ export function createDirectToolExecutor(
       return {
         content: [{ type: "text" as const, text: `MCP server "${spec.serverName}" not connected` }],
         details: { error: "not_connected", server: spec.serverName },
+      };
+    }
+
+    const approval = await ensureToolCallApproved(state, spec.serverName, {
+      name: spec.prefixedName,
+      originalName: spec.originalName,
+      description: spec.description,
+      inputSchema: spec.inputSchema,
+      resourceUri: spec.resourceUri,
+      uiResourceUri: spec.uiResourceUri,
+      uiStreamMode: spec.uiStreamMode,
+    }, params, ownedSignal);
+    if (approval.ok === false) {
+      const denied = approval.reason === "denied";
+      const message = denied
+        ? `The user declined approval to run MCP tool "${spec.originalName}" on server "${spec.serverName}".`
+        : `MCP tool "${spec.originalName}" on server "${spec.serverName}" is approval-gated and requires an interactive session.`;
+      return {
+        content: [{ type: "text" as const, text: message }],
+        details: {
+          error: denied ? "approval_denied" : "approval_required",
+          server: spec.serverName,
+          tool: spec.originalName,
+        },
       };
     }
 

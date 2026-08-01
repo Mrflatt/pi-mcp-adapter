@@ -13,7 +13,9 @@ import { formatAuthRequiredMessage } from "./utils.ts";
 import { buildHostHtmlTemplate, buildCspMetaContent } from "./host-html-template.ts";
 import { logger } from "./logger.ts";
 import type { McpServerManager } from "./server-manager.ts";
+import type { McpExtensionState } from "./state.ts";
 import { SessionRecoveryAuthRequiredError, withSessionRecovery, type SessionRecoveryDeps } from "./session-recovery.ts";
+import { ensureToolCallApproved, isToolCallApprovalRequired } from "./tool-approval.ts";
 import {
   extractUiPromptText,
   getVisualizationStreamEnvelope,
@@ -52,6 +54,8 @@ export interface UiServerOptions {
    * tool calls run without recovery (unchanged pre-existing behavior).
    */
   config?: McpConfig;
+  /** Live state enables TUI approval prompts for iframe-originated tool calls. */
+  state?: McpExtensionState;
   onNeedsAuth?: SessionRecoveryDeps["onNeedsAuth"];
   consentManager: ConsentManager;
   hostContext?: UiHostContext;
@@ -355,16 +359,51 @@ export async function startUiServer(options: UiServerOptions): Promise<UiServerH
           return;
         }
 
+        const callArgs = {
+          name: callParams.name,
+          arguments:
+            callParams.arguments && typeof callParams.arguments === "object" && !Array.isArray(callParams.arguments)
+              ? callParams.arguments
+              : {},
+        };
+        const toolMeta = {
+          name: callParams.name,
+          originalName: callParams.name,
+          description: "",
+        };
+        const approval = options.state
+          ? await ensureToolCallApproved(
+              options.state,
+              options.serverName,
+              toolMeta,
+              callArgs.arguments,
+              options.state.owner?.signal,
+            )
+          : options.config && isToolCallApprovalRequired(options.config, options.serverName, toolMeta)
+            ? { ok: false as const, reason: "approval_required_headless" as const }
+            : { ok: true as const };
+        if (approval.ok === false) {
+          const denied = approval.reason === "denied";
+          const message = denied
+            ? `The user declined approval to run MCP tool "${callParams.name}" on server "${options.serverName}".`
+            : `MCP tool "${callParams.name}" on server "${options.serverName}" is approval-gated and requires an interactive session.`;
+          sendJson(res, 200, {
+            ok: true,
+            result: {
+              content: [{ type: "text" as const, text: message }],
+              details: {
+                error: denied ? "approval_denied" : "approval_required",
+                server: options.serverName,
+                tool: callParams.name,
+              },
+            },
+          });
+          return;
+        }
+
         try {
           options.manager.touch(options.serverName);
           options.manager.incrementInFlight(options.serverName);
-          const callArgs = {
-            name: callParams.name,
-            arguments:
-              callParams.arguments && typeof callParams.arguments === "object" && !Array.isArray(callParams.arguments)
-                ? callParams.arguments
-                : {},
-          };
           const result = options.config
             ? await withSessionRecovery(
                 { manager: options.manager, config: options.config, onNeedsAuth: options.onNeedsAuth },

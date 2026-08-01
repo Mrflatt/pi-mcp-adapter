@@ -46,6 +46,8 @@ export interface McpExtensionState {
   authStorageOptions: AuthStorageOptions;
   failureTracker: Map<string, number>;
   failureMessages: Map<string, string>;
+  /** Session-only approvals keyed by server and original tool name. */
+  approvedToolCalls: Map<string, true>;
   uiResourceHandler: UiResourceHandler;
   consentManager: ConsentManager;
   uiServer: UiServerHandle | null;
