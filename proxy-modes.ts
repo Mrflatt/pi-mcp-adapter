@@ -15,6 +15,7 @@ import { maybeStartUiSession, summarizeUiSessionResult, type UiSessionRuntime } 
 import { formatAuthRequiredMessage, formatMcpStatus, resolveServerUrl, truncateAtWord } from "./utils.ts";
 import { authenticate, completeAuthFromInput, startAuth, supportsOAuth } from "./mcp-auth-flow.ts";
 import { SessionRecoveryAuthRequiredError, withSessionRecovery } from "./session-recovery.ts";
+import { paginate, rankSuggestions, rankToolMatches } from "./search-ranking.ts";
 
 type ProxyToolResult = AgentToolResult<Record<string, unknown>>;
 
@@ -407,9 +408,11 @@ export function executeDescribe(state: McpExtensionState, toolName: string): Pro
 
   if (!serverName || !toolMeta) {
     if (disabledMatch) return disabledResult("describe", disabledMatch);
+    const suggestions = rankSuggestions(state, toolName, 5);
+    const suggestionText = suggestions.length > 0 ? ` Did you mean: ${suggestions.join(", ")}` : "";
     return {
-      content: [{ type: "text" as const, text: `Tool "${toolName}" not found. Use mcp({ search: "..." }) to search.` }],
-      details: { mode: "describe", error: "tool_not_found", requestedTool: toolName },
+      content: [{ type: "text" as const, text: `Tool "${toolName}" not found. Use mcp({ search: "..." }) to search.${suggestionText}` }],
+      details: { mode: "describe", error: "tool_not_found", requestedTool: toolName, suggestions },
     };
   }
 
@@ -440,32 +443,32 @@ export function executeSearch(
   regex?: boolean,
   server?: string,
   includeSchemas?: boolean,
+  limit = 12,
+  offset = 0,
 ): ProxyToolResult {
   const showSchemas = includeSchemas !== false;
   if (server && isServerDisabled(state.config.mcpServers[server])) return disabledResult("search", server);
 
-  const matches: Array<{ server: string; tool: ToolMetadata }> = [];
-
-  let pattern: RegExp;
-  try {
-    if (regex) {
+  let matches: Array<{ server: string; tool: ToolMetadata; score: number }>;
+  if (regex) {
+    let pattern: RegExp;
+    try {
       if (query.length > MAX_REGEX_SEARCH_QUERY_LENGTH) {
         return {
           content: [{ type: "text" as const, text: `Regex query is too long; maximum length is ${MAX_REGEX_SEARCH_QUERY_LENGTH} characters.` }],
           details: { mode: "search", error: "query_too_long", query, maxLength: MAX_REGEX_SEARCH_QUERY_LENGTH },
         };
       }
-
       pattern = new RegExp(query, "i");
       let safety;
       try {
         const { checkSync } = require("recheck") as typeof import("recheck");
         safety = checkSync(query, "i", REGEX_SAFETY_CHECK_PARAMS);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const reason = error instanceof Error ? error.message : String(error);
         return {
           content: [{ type: "text" as const, text: "Regex query rejected because safety analysis failed." }],
-          details: { mode: "search", error: "unsafe_pattern", query, reason: message },
+          details: { mode: "search", error: "unsafe_pattern", query, reason },
         };
       }
       if (safety.status !== "safe") {
@@ -474,76 +477,71 @@ export function executeSearch(
           details: { mode: "search", error: "unsafe_pattern", query, safetyStatus: safety.status },
         };
       }
-    } else {
-      const terms = query.trim().split(/\s+/).filter(t => t.length > 0);
-      if (terms.length === 0) {
-        return {
-          content: [{ type: "text" as const, text: "Search query cannot be empty" }],
-          details: { mode: "search", error: "empty_query" },
-        };
-      }
-      const escaped = terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-      pattern = new RegExp(escaped.join("|"), "i");
+    } catch {
+      return {
+        content: [{ type: "text" as const, text: `Invalid regex: ${query}` }],
+        details: { mode: "search", error: "invalid_pattern", query },
+      };
     }
-  } catch {
-    return {
-      content: [{ type: "text" as const, text: `Invalid regex: ${query}` }],
-      details: { mode: "search", error: "invalid_pattern", query },
-    };
-  }
 
-  for (const [serverName, metadata] of state.toolMetadata.entries()) {
-    if (isServerDisabled(state.config.mcpServers[serverName])) continue;
-    if (server && serverName !== server) continue;
-    for (const tool of metadata) {
-      if (pattern.test(tool.name) || pattern.test(tool.description)) {
-        matches.push({
-          server: serverName,
-          tool,
-        });
+    matches = [];
+    for (const [serverName, metadata] of state.toolMetadata.entries()) {
+      if (isServerDisabled(state.config.mcpServers[serverName])) continue;
+      if (server && serverName !== server) continue;
+      for (const tool of metadata) {
+        if (pattern.test(tool.name) || pattern.test(tool.description)) matches.push({ server: serverName, tool, score: 0 });
       }
     }
+  } else if (query.trim().length === 0) {
+    if (!server) {
+      return {
+        content: [{ type: "text" as const, text: "Search query cannot be empty" }],
+        details: { mode: "search", error: "empty_query" },
+      };
+    }
+    matches = (state.toolMetadata.get(server) ?? [])
+      .map(tool => ({ server, tool, score: 0 }))
+      .sort((a, b) => a.tool.name.localeCompare(b.tool.name));
+  } else {
+    matches = rankToolMatches(state, query, server);
   }
 
-  const totalCount = matches.length;
-
-  if (totalCount === 0) {
-    const msg = server
-      ? `No tools matching "${query}" in "${server}"`
-      : `No tools matching "${query}"`;
+  const page = paginate(matches, offset, limit);
+  if (page.total === 0) {
+    const msg = server ? `No tools matching "${query}" in "${server}"` : `No tools matching "${query}"`;
     return {
       content: [{ type: "text" as const, text: msg }],
-      details: { mode: "search", matches: [], count: 0, query },
+      details: { mode: "search", matches: [], count: 0, hasMore: false, nextOffset: null, query },
     };
   }
 
-  let text = `Found ${totalCount} tool${totalCount === 1 ? "" : "s"} matching "${query}":\n\n`;
-
-  for (const match of matches) {
+  let text = `Found ${page.total} tool${page.total === 1 ? "" : "s"} matching "${query}":\n\n`;
+  for (const match of page.items) {
     if (showSchemas) {
       text += `${match.tool.name}\n`;
       text += `  ${match.tool.description || "(no description)"}\n`;
       if (match.tool.inputSchema && !match.tool.resourceUri) {
         text += `\n  Parameters:\n${formatSchema(match.tool.inputSchema, "    ")}\n`;
       } else if (match.tool.resourceUri) {
-        text += `  No parameters (resource tool).\n`;
+        text += "  No parameters (resource tool).\n";
       }
       text += "\n";
     } else {
       text += `- ${match.tool.name}`;
-      if (match.tool.description) {
-        text += ` - ${truncateAtWord(match.tool.description, 50)}`;
-      }
+      if (match.tool.description) text += ` - ${truncateAtWord(match.tool.description, 50)}`;
       text += "\n";
     }
   }
+  if (page.hasMore) text += `\n${page.items.length} of ${page.total} — offset: ${page.nextOffset} for more\n`;
 
   return {
     content: [{ type: "text" as const, text: text.trim() }],
     details: {
       mode: "search",
-      matches: matches.map(m => ({ server: m.server, tool: m.tool.name })),
-      count: totalCount,
+      matches: page.items.map(match => ({ server: match.server, tool: match.tool.name, score: match.score })),
+      count: page.total,
+      hasMore: page.hasMore,
+      nextOffset: page.nextOffset,
       query,
     },
   };
@@ -803,9 +801,11 @@ export async function executeCall(
             if (connectedAfterAuth) {
               toolMeta = findToolByName(state.toolMetadata.get(serverName), toolName);
               if (!toolMeta) {
+                const suggestions = rankSuggestions(state, toolName, 5);
+                const suggestionText = suggestions.length > 0 ? ` Did you mean: ${suggestions.join(", ")}` : "";
                 return {
-                  content: [{ type: "text" as const, text: `Tool "${toolName}" not found on "${serverName}" after reconnect.` }],
-                  details: { mode: "call", error: "tool_not_found_after_reconnect", server: serverName, requestedTool: toolName },
+                  content: [{ type: "text" as const, text: `Tool "${toolName}" not found on "${serverName}" after reconnect.${suggestionText}` }],
+                  details: { mode: "call", error: "tool_not_found_after_reconnect", server: serverName, requestedTool: toolName, suggestions },
                 };
               }
             }
@@ -893,9 +893,11 @@ export async function executeCall(
     } else {
       msg += ` Use mcp({ search: "..." }) to search.`;
     }
+    const suggestions = rankSuggestions(state, toolName, 5);
+    if (suggestions.length > 0) msg += ` Did you mean: ${suggestions.join(", ")}`;
     return {
       content: [{ type: "text" as const, text: msg }],
-      details: { mode: "call", error: "tool_not_found", requestedTool: toolName, hintServer },
+      details: { mode: "call", error: "tool_not_found", requestedTool: toolName, hintServer, suggestions },
     };
   }
 
@@ -987,9 +989,11 @@ export async function executeCall(
         const hint = available.length > 0
           ? `Available tools on "${serverName}": ${available.join(", ")}`
           : `Server "${serverName}" has no tools.`;
+        const suggestions = rankSuggestions(state, toolName, 5);
+        const suggestionText = suggestions.length > 0 ? ` Did you mean: ${suggestions.join(", ")}` : "";
         return {
-          content: [{ type: "text" as const, text: `Tool "${toolName}" not found on "${serverName}" after reconnect. ${hint}` }],
-          details: { mode: "call", error: "tool_not_found_after_reconnect", server: serverName, requestedTool: toolName },
+          content: [{ type: "text" as const, text: `Tool "${toolName}" not found on "${serverName}" after reconnect. ${hint}${suggestionText}` }],
+          details: { mode: "call", error: "tool_not_found_after_reconnect", server: serverName, requestedTool: toolName, suggestions },
         };
       }
     } catch (error) {

@@ -628,6 +628,9 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
         search: Type.Optional(Type.String({ description: "Search tools by name/description" })),
         regex: Type.Optional(Type.Boolean({ description: "Treat search as regex (default: substring match)" })),
         includeSchemas: Type.Optional(Type.Boolean({ description: "Include parameter schemas in search results (default: true)" })),
+        // Raw JSON schema: host TypeBox shims may omit Type.Number (see index-lifecycle shim test).
+        limit: Type.Optional({ type: "number", minimum: 1, description: "Maximum search results to return (default: 12)" } as any),
+        offset: Type.Optional({ type: "number", minimum: 0, description: "Search result offset (default: 0)" } as any),
         server: Type.Optional(Type.String({ description: "Filter to specific server (also disambiguates tool calls)" })),
         action: Type.Optional(Type.String({ description: "Action: 'ui-messages', 'auth-start', or 'auth-complete'" })),
       }),
@@ -641,6 +644,8 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
         search?: string;
         regex?: boolean;
         includeSchemas?: boolean;
+        limit?: number;
+        offset?: number;
         server?: string;
         action?: string;
       }, signal, _onUpdate, _ctx) {
@@ -742,8 +747,8 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
         if (params.instructions) {
           return executeInstructions(state, params.instructions);
         }
-        if (params.search) {
-          return executeSearch(state, params.search, params.regex, params.server, params.includeSchemas);
+        if (params.search !== undefined) {
+          return executeSearch(state, params.search, params.regex, params.server, params.includeSchemas, params.limit, params.offset);
         }
         if (params.server) {
           return executeList(state, params.server);

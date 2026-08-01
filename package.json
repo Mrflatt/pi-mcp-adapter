@@ -63,6 +63,7 @@
     "abort.ts",
     "runtime-owner.ts",
     "tool-metadata.ts",
+    "search-ranking.ts",
     "init.ts",
     "ui-session.ts",
     "proxy-modes.ts",
