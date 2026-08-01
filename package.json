@@ -86,6 +86,7 @@
     "tool-result-renderer.ts",
     "mcp-output-guard.ts",
     "mcp-code.ts",
+    "mcp-probe.ts",
     "resource-tools.ts",
     "lifecycle.ts",
     "mcp-status.ts",

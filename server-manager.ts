@@ -14,6 +14,7 @@ import {
   type UrlElicitationRequiredError,
 } from "@modelcontextprotocol/sdk/types.js";
 import { UnixSocketClientTransport } from "./unix-socket-transport.ts";
+import { probeMcpEndpoint } from "./mcp-probe.ts";
 import {
   isServerDisabled,
   type McpTool,
@@ -221,7 +222,10 @@ export class McpServerManager {
     const generation = this.closeGenerations.get(name) ?? 0;
     const attemptController = new AbortController();
     const attemptSignal = combineAbortSignals(ownedSignal, attemptController.signal);
-    const promise = this.createConnection(name, definition, attemptSignal, ownedSignal);
+    const connectionAttempt = this.createConnection(name, definition, attemptSignal, ownedSignal);
+    const promise = definition.url
+      ? connectionAttempt.catch(async error => { throw await this.enrichHttpConnectionError(definition, error); })
+      : connectionAttempt;
     this.connectPromises.set(name, promise);
     this.connectAttempts.set(name, attemptController);
 
@@ -454,6 +458,16 @@ export class McpServerManager {
         }
       }
       throw reportedError;
+    }
+  }
+
+  private async enrichHttpConnectionError(definition: ServerDefinition, error: unknown): Promise<Error> {
+    const originalMessage = error instanceof Error ? error.message : String(error);
+    try {
+      const probe = await probeMcpEndpoint(resolveServerUrl(definition)!);
+      return new Error(`${originalMessage} — probe: ${probe.classification}`, { cause: error });
+    } catch {
+      return error instanceof Error ? error : new Error(originalMessage);
     }
   }
 

@@ -49,6 +49,7 @@ describe("McpServerManager stderr capture", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("pipes stderr for normal stdio servers and preserves inherit for debug", async () => {
@@ -96,7 +97,11 @@ describe("McpServerManager stderr capture", () => {
     expect(Buffer.byteLength(capturedError?.message ?? "", "utf8")).toBeLessThanOrEqual(8_192 + 100);
   });
 
-  it("keeps empty stderr and non-stdio errors unchanged", async () => {
+  it("keeps empty stdio stderr unchanged and enriches HTTP errors with a probe", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<html>Not found</html>", {
+      status: 404,
+      headers: { "content-type": "text/html" },
+    })));
     const { McpServerManager } = await import("../server-manager.ts");
     const manager = new McpServerManager();
     mocks.connectImpl = async () => {
@@ -104,7 +109,9 @@ describe("McpServerManager stderr capture", () => {
     };
 
     await expect(manager.connect("stdio", { command: "node" })).rejects.toThrow(/^MCP error -32000: Connection closed$/);
-    await expect(manager.connect("http", { url: "https://example.com/mcp" })).rejects.toThrow(/^MCP error -32000: Connection closed$/);
+    await expect(manager.connect("http", { url: "https://example.com/mcp" })).rejects.toThrow(
+      /MCP error -32000: Connection closed — probe: endpoint returned HTML \(404\)/,
+    );
   });
 
   it("bounds captured stderr and keeps only its final three lines", async () => {
