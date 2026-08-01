@@ -10,11 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added `settings.freezeDirectTools` to keep direct MCP tool registration stable after initial sync while preserving explicit reconnect refreshes. Thanks @ddfourtwo for PR #254.
 - Added best-effort Linux OAuth credential recovery when Pi inherits a revoked session keyring, allowing explicit re-authentication through a fresh `keyctl` session helper. Thanks @anthod0 for issue #248 and the validation prototype.
-- Added compact TypeScript-shaped parameter rendering to MCP tool describe and schema-inclusive search results, with existing schema formatting retained as a fallback.
-- Added probe-classified HTTP connection failure messages to identify endpoint protocol mismatches without affecting healthy connections.
-- Added opt-in `mcp_code` plain-JavaScript codemode for chaining MCP calls from tool-restricted subagents.
-- Added ranked, paginated MCP tool search and did-you-mean suggestions for unresolved tool names.
-- Added optional global and per-server `approveTools` patterns that require interactive approval before matching proxy, direct, resource, or iframe-originated MCP tool calls.
+- Ranked, paginated MCP tool search: best matches come first in a short page of 12 instead of an unranked dump of every match with full schemas, so the model stops guessing and each search costs a fraction of the tokens. Misses on describe/call now return top-5 "Did you mean" suggestions, letting the model self-correct a typo or missing prefix in the same turn instead of burning a round trip.
+- Optional `approveTools` patterns (global and per-server) add the missing middle tier between "tool runs instantly" and "tool hidden entirely": flag risky tools and Pi asks before running them — Allow once / Allow for session / Deny — across proxy, direct, resource, and iframe-originated calls. Safe tools keep full speed; a deny is a normal result the model adapts to, not a crash.
+- Opt-in `mcp_code` plain-JavaScript codemode turns N-step MCP jobs into one call: loop, filter, and chain tools inside a single sandboxed script and get one result back — built for tool-restricted subagents where every round trip costs child context. Every scripted call still goes through auth, output guarding, and the approval gate.
+- HTTP connection failures are now probe-classified into a plain-language diagnosis (for example "endpoint returned HTML (200) — this URL does not appear to speak MCP") instead of an opaque "fetch failed", so setup mistakes are fixed in seconds. Healthy connections are never probed.
+- Tool parameters render as compact TypeScript shapes (`{ query: string; limit?: number }`) in describe and search, replacing multi-line schema dumps — the model reads less and acts sooner, with the previous formatting kept as a fallback for exotic schemas.
+- `/mcp setup` gained curated one-click presets (DeepWiki, Context7, Notion, GitHub, Chrome DevTools): pick, preview the exact config write, confirm — new servers in under a minute with no hand-typed setup.
+
+The ranked search scoring, did-you-mean suggestions, approval patterns, endpoint shape probe, TypeScript-shaped schemas, and codemode design in this release are adapted from [Executor](https://github.com/UsefulSoftwareCo/executor) by Rhys Sullivan (@RhysSullivan). Thanks Rhys.
 
 ## [2.17.0] - 2026-07-31
 
