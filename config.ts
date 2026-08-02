@@ -20,6 +20,46 @@ const REPOPROMPT_BINARY_CANDIDATES = [
   "/Applications/Repo Prompt.app/Contents/MacOS/repoprompt-mcp",
 ];
 
+export interface KnownServerPreset {
+  id: string;
+  name: string;
+  summary: string;
+  entry: ServerEntry;
+}
+
+export const KNOWN_SERVER_PRESETS: readonly KnownServerPreset[] = [
+  {
+    id: "deepwiki",
+    name: "DeepWiki",
+    summary: "Ask questions about public GitHub repositories.",
+    entry: { url: "https://mcp.deepwiki.com/mcp" },
+  },
+  {
+    id: "context7",
+    name: "Context7",
+    summary: "Look up current library documentation and examples.",
+    entry: { url: "https://mcp.context7.com/mcp" },
+  },
+  {
+    id: "notion",
+    name: "Notion",
+    summary: "Search and work with your Notion workspace.",
+    entry: { url: "https://mcp.notion.com/mcp", auth: "oauth" },
+  },
+  {
+    id: "github",
+    name: "GitHub",
+    summary: "Work with GitHub through your Copilot account.",
+    entry: { url: "https://api.githubcopilot.com/mcp", auth: "oauth" },
+  },
+  {
+    id: "chrome-devtools",
+    name: "Chrome DevTools",
+    summary: "Inspect and automate a local Chrome browser.",
+    entry: { command: "npx", args: ["-y", "chrome-devtools-mcp@latest"] },
+  },
+];
+
 const IMPORT_PATHS: Record<ImportKind, string[]> = {
   cursor: [join(homedir(), ".cursor", "mcp.json")],
   "claude-code": [

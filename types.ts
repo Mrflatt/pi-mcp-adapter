@@ -356,6 +356,8 @@ export interface ServerEntry {
   // Include/exclude specific MCP tools/resources by original or prefixed name
   includeTools?: string[];
   excludeTools?: string[];
+  // Require interactive approval before calling matching MCP tools/resources.
+  approveTools?: boolean | string[];
   // Debug
   debug?: boolean;  // Show server stderr (default: false)
   /** Enable metadata-only JSONL protocol tracing for this server. */
@@ -406,6 +408,10 @@ export interface McpSettings {
   idleTimeout?: number; // minutes, default 10, 0 to disable
   requestTimeoutMs?: number; // milliseconds, overrides the SDK request timeout when > 0
   directTools?: boolean;
+  /** Register the MCP-only plain-JavaScript codemode tool. Defaults to false. */
+  codeMode?: boolean;
+  /** Default approval gate for matching tools/resources; per-server settings override it. */
+  approveTools?: boolean | string[];
   disableProxyTool?: boolean;
   /** Freeze direct-tool registration after the initial sync. Automatic metadata updates
    * (reconnects, lazy-connect, tool-list-changed) won't rebuild the system prompt,
@@ -608,7 +614,7 @@ function normalizeToolName(value: string): string {
   return value.replace(/-/g, "_");
 }
 
-function getToolNameCandidates(toolName: string, serverName: string, prefix: ToolPrefix): Set<string> {
+export function getToolNameCandidates(toolName: string, serverName: string, prefix: ToolPrefix): Set<string> {
   return new Set<string>([
     normalizeToolName(toolName),
     normalizeToolName(formatToolName(toolName, serverName, prefix)),
@@ -623,7 +629,7 @@ function globToRegExp(pattern: string): RegExp {
   return new RegExp(`^${escaped}$`);
 }
 
-function matchesToolPattern(candidates: Set<string>, patterns?: unknown): boolean {
+export function matchesToolPattern(candidates: Set<string>, patterns?: unknown): boolean {
   if (!Array.isArray(patterns) || patterns.length === 0) return false;
 
   for (const pattern of patterns) {

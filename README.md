@@ -32,7 +32,7 @@ The adapter reads standard MCP files automatically. No extra setup needed if you
 |---------------------|--------------|
 | `.mcp.json` or `~/.config/mcp/mcp.json` | Pi uses it immediately. The first time you open `/mcp`, you'll see a short heads-up explaining which file Pi detected and that Pi only writes adapter-specific overrides to its own files. |
 | Host-specific configs (Cursor, Claude Code, Codex, etc.) but no standard MCP files | Run `/mcp setup` to adopt those host configs into Pi. The setup flow shows exactly what it found, lets you pick which ones to import, and previews the exact file changes before writing. |
-| Nothing configured yet | Run `/mcp setup` to scaffold a minimal `.mcp.json`, quick-add RepoPrompt, or inspect what the adapter discovered on your machine. |
+| Nothing configured yet | Run `/mcp setup` to scaffold a minimal `.mcp.json`, add a curated known server, quick-add RepoPrompt, or inspect what the adapter discovered on your machine. |
 
 If you prefer the terminal, you can also run `pi-mcp-adapter init` after install to scan for host-specific configs and add missing compatibility imports to the Pi agent dir (`~/.pi/agent/mcp.json` by default, or `$PI_CODING_AGENT_DIR/mcp.json` when set).
 
@@ -262,6 +262,8 @@ When any enabled server uses `eager` or `keep-alive`, initialization also starts
     "showStatusIcon": true,
     "mcpFooterStatus": "full",
     "hostConfigDiscovery": "off",
+    "approveTools": ["github_delete_*", "notion_update_*"],
+    "codeMode": true,
     "oauthDir": ".pi/mcp-oauth",
     "trace": {
       "enabled": true,
@@ -282,10 +284,12 @@ When any enabled server uses `eager` or `keep-alive`, initialization also starts
 | `showStatusIcon` | Show the plug icon in MCP status and connection text (default: `true`). Set to `false` for plain `MCP: ...` text. |
 | `mcpFooterStatus` | MCP footer verbosity: `"full"` (default), `"compact"` for `MCP connected/enabled`, or `"off"` to clear the persistent footer status. `/mcp status` remains available. |
 | `hostConfigDiscovery` | Host-specific config policy: `"off"` (default), `"prompt"` (detect/report only), or `"on"` (explicitly load detected host configs as the lowest-precedence fallback) |
+| `approveTools` | `true` to require approval before every MCP tool call, or an array of glob patterns such as `["github_delete_*", "notion_update_*"]`. Per-server `approveTools` overrides this. |
 | `oauthDir` | Legacy OAuth `tokens.json` import directory for this MCP config. Relative paths resolve from the active project cwd. `MCP_OAUTH_DIR` still wins when set. Persistent OAuth credentials are stored in the OS credential store, not this directory. |
 | `mcpServers.<name>.oauth.authorizationParams` | Extra authorization URL parameters for provider-specific OAuth extensions. Flow-owned parameters such as `client_id`, `redirect_uri`, `scope`, `state`, `code_challenge`, `response_type`, and `resource` cannot be overridden. |
 | `directTools` | Global default for all servers (default: false). Per-server overrides this. |
 | `freezeDirectTools` | Keep direct-tool registration stable after the initial sync so automatic reconnects and list-change notifications do not rebuild the system prompt. Use `mcp({ connect: "server" })` or `/mcp reconnect <server>` to refresh deliberately. Default: false. |
+| `codeMode` | Register the MCP-only `mcp_code` plain-JavaScript tool (default: false). |
 | `disableProxyTool` | Hide the `mcp` proxy tool once configured direct tools are fully available from cache. |
 | `autoAuth` | Auto-run OAuth on `connect`/tool calls when a server needs auth, then retry once (default: false). |
 | `sampling` | Allow MCP servers to sample through Pi models, honoring `modelPreferences.hints` before current/default fallback (default: true when UI approval is available). |
@@ -294,7 +298,25 @@ When any enabled server uses `eager` or `keep-alive`, initialization also starts
 | `outputGuard` | Guard oversized MCP output: `true` (default), `false`, or `{ maxBytes, maxLines, detailsMaxBytes }`. See [Output Guard](#output-guard). |
 | `trace` | Opt-in metadata-only protocol tracing. Set `{ enabled: true }` globally or `trace: true` on a server. The per-session JSONL file defaults to `.pi/mcp-traces/`; `file`, `maxBytes` (default 262144), and `maxEvents` (default 10000) can be set. Raw MCP payloads, prompts, tool arguments/results, auth data, and URLs are never persisted. |
 
-Per-server `idleTimeout` and `requestTimeoutMs` override the global settings. `debug` remains stderr display and is unrelated to protocol tracing.
+Per-server `idleTimeout`, `requestTimeoutMs`, and `approveTools` override the global settings. `debug` remains stderr display and is unrelated to protocol tracing.
+
+### Tool Approval
+
+Use `approveTools` when a tool should stay visible but not run without confirmation. This is useful for destructive or high-cost actions where hiding the tool would make planning harder, but running it silently is too risky.
+
+```json
+{
+  "settings": {
+    "approveTools": ["github_delete_*", "notion_update_*"]
+  },
+  "mcpServers": {
+    "github": { "approveTools": ["delete_*", "merge_pull_request"] },
+    "docs": { "approveTools": false }
+  }
+}
+```
+
+When a matching tool is called from the proxy tool, a direct MCP tool, a resource call, or an MCP UI iframe, Pi asks: **Allow once**, **Allow for session**, or **Deny**. Session approvals are kept in memory only. In headless sessions, matching calls fail closed with an `approval_required` result instead of running. `excludeTools` still removes tools entirely; `approveTools` only gates visible tools at call time.
 
 ### Output Guard
 
@@ -315,6 +337,22 @@ Tune the limits with the object form:
 ```
 
 Set `"outputGuard": false` — or the env kill switch `MCP_OUTPUT_GUARD=0` — to disable the guard and restore raw output behavior. Saved temp files are created with mode `0600` under the system temp directory and are not cleaned up automatically; note that spilled MCP output may contain sensitive data.
+
+### MCP Code Mode
+
+Set `settings.codeMode` to `true` to register `mcp_code({ code, timeoutMs? })`. It runs plain JavaScript with three capabilities: a flat `tools.<prefixedToolName>(args)` proxy, `emit(value)`, and a captured `console`. MCP calls return `{ ok: true, data }` or `{ ok: false, error: { code, message } }`, so a failed call does not stop the rest of the script. Emitted values and console output appear before the script's final return value, and the combined result uses the normal MCP output guard. The default timeout is 30 seconds.
+
+```js
+const first = await tools.github_search_issues({ query: "is:open label:bug" });
+if (!first.ok) return first;
+const selected = first.data.content.filter((item) => item.type === "text");
+emit({ searched: true });
+return selected;
+```
+
+For a tool-restricted subagent, enable code mode in the adapter configuration, then launch the child Pi with its tool allowlist set to `["mcp_code"]`. Have the parent discover MCP tool names with `mcp({ search: "..." })` and include the relevant prefixed names in the child's task; the child can then loop, filter, and chain those MCP calls without filesystem, shell, or edit tools. The adapter's ordinary lazy connection, authentication, output guard, abort handling, and approval gates still apply to every call.
+
+`node:vm` is **NOT a security boundary**. This feature is capability shaping only; do not run untrusted code as though it were sandboxed. `mcp_code` is also distinct from Pi's code-mode skill: Pi's skill batches general Pi tools, while `mcp_code` exposes MCP calls only and can be the child's sole tool.
 
 ### MCP Prompts
 
@@ -424,7 +462,7 @@ When you change direct-tool toggles in `/mcp`, the extension updates direct tool
 
 **Interactive configuration:** Run `/mcp` to open an interactive panel showing all servers with connection status, tools, and direct/proxy toggles. You can reconnect servers and toggle tools between direct and proxy from the same overlay. For OAuth, press Enter on a server that needs auth or `ctrl+a` on any OAuth server.
 
-**Guided first-run setup:** Run `/mcp setup` to inspect detected shared MCP files, adopt compatibility imports from other hosts, open discovered config paths, preview exact before/after file diffs for writes, scaffold a minimal project `.mcp.json`, or quick-add RepoPrompt into a standard/shared MCP file.
+**Guided first-run setup:** Run `/mcp setup` to inspect detected shared MCP files, adopt compatibility imports from other hosts, open discovered config paths, preview exact before/after file diffs for writes, scaffold a minimal project `.mcp.json`, add a curated known server (DeepWiki, Context7, Notion, GitHub, or Chrome DevTools), or quick-add RepoPrompt into a standard/shared MCP file.
 
 **Subagent integration:** If you use the subagent extension, agents can request direct MCP tools in their frontmatter with `mcp:server-name` syntax. See the subagent README for details.
 
@@ -513,7 +551,7 @@ Prefer `.mcp.json` for project-local shared MCP config. Use `.pi/mcp.json` only 
 |------|---------|
 | Status | `mcp({ })` |
 | List server | `mcp({ server: "name" })` |
-| Search | `mcp({ search: "screenshot navigate" })` |
+| Search | `mcp({ search: "screenshot navigate", limit: 12, offset: 0 })` |
 | Describe | `mcp({ describe: "tool_name" })` |
 | Instructions | `mcp({ instructions: "name" })` |
 | Call | `mcp({ tool: "...", args: { key: "value" } })` |
@@ -526,9 +564,13 @@ Prefer `.mcp.json` for project-local shared MCP config. Use `.pi/mcp.json` only 
 
 MCP proxy and direct-tool results render compactly by default: long text shows the first three terminal-wrapped lines plus a `Ctrl+O to expand` hint, while the full result remains available when expanded and is still returned unchanged to the model.
 
-Search includes both MCP tools and Pi tools (from extensions). Pi tools appear first with `[pi tool]` prefix. Space-separated words are OR'd.
+Search includes both MCP tools and Pi tools (from extensions). Pi tools appear first with `[pi tool]` prefix. Space-separated words are ranked by weighted matches across name, server, and description, then returned one page at a time (`limit` defaults to 12). Use `details.nextOffset` for the next page. Regex search is still available with `regex: true`, but regex results are paginated without ranking.
 
-Tool names are fuzzy-matched on hyphens and underscores — `context7_resolve_library_id` finds `context7_resolve-library-id`.
+Tool names are fuzzy-matched on hyphens and underscores — `context7_resolve_library_id` finds `context7_resolve-library-id`. When `describe` or `tool` cannot resolve a name, the result includes top suggestions so the agent can correct a typo or missing prefix in the same turn.
+
+When `includeSchemas` is enabled, search and describe render common JSON Schema parameters as compact TypeScript shapes like `{ query: string; limit?: number; }`, with the older schema formatter retained as a fallback for unsupported schemas.
+
+For HTTP servers, failed connects run a one-request shape probe that can turn opaque transport errors into setup hints such as `endpoint returned HTML (200) — this URL does not appear to speak MCP`. Healthy connections are not probed.
 
 Servers that provide usage guidance via the MCP `instructions` field surface it at three levels: a truncated head in the `mcp` proxy tool description itself (so the model sees it without any call), a longer preview at the end of `mcp({ server: "name" })` listings, and the full text via `mcp({ instructions: "name" })`. Instructions are captured at connect time and cached alongside tool metadata, so they stay available without a live connection.
 
@@ -537,7 +579,7 @@ Servers that provide usage guidance via the MCP `instructions` field surface it 
 | Command | What it does |
 |---------|--------------|
 | `/mcp` | Interactive panel and first-run onboarding surface |
-| `/mcp setup` | Guided setup for imports, a minimal `.mcp.json`, RepoPrompt quick-add, and config-path inspection |
+| `/mcp setup` | Guided setup for imports, a minimal `.mcp.json`, curated known servers, RepoPrompt quick-add, and config-path inspection |
 | `/mcp tools` | List all tools |
 | `/mcp prompts` | List all MCP prompts registered as slash commands |
 | `/mcp reconnect` | Reconnect all servers |

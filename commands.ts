@@ -4,6 +4,8 @@ import { isServerDisabled, type McpAuthResult, type McpConfig, type McpPanelCall
 import {
   ensureCompatibilityImports,
   getMcpDiscoverySummary,
+  getProjectConfigPath,
+  type KnownServerPreset,
   getServerProvenance,
   previewCompatibilityImports,
   previewSharedServerEntry,
@@ -395,6 +397,7 @@ export async function openMcpSetup(
       if (!repoPrompt.entry || !repoPrompt.targetPath || !repoPrompt.serverName) return null;
       return previewSharedServerEntry(repoPrompt.targetPath, repoPrompt.serverName, repoPrompt.entry);
     },
+    previewKnownServer: (preset: KnownServerPreset) => previewSharedServerEntry(getProjectConfigPath(ctx.cwd), preset.id, preset.entry),
     adoptImports: async (imports: ImportKind[]) => {
       const result = ensureCompatibilityImports(imports, configOverridePath);
       if (result.added.length > 0) configChanged = true;
@@ -413,6 +416,11 @@ export async function openMcpSetup(
       const path = writeSharedServerEntry(repoPrompt.targetPath, repoPrompt.serverName, repoPrompt.entry);
       configChanged = true;
       return { path, serverName: repoPrompt.serverName };
+    },
+    addKnownServer: async (preset: KnownServerPreset) => {
+      const path = writeSharedServerEntry(getProjectConfigPath(ctx.cwd), preset.id, preset.entry);
+      configChanged = true;
+      return { path, serverName: preset.name };
     },
     openPath: async (targetPath: string) => {
       await openPath(pi, targetPath);

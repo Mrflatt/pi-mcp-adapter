@@ -3,7 +3,8 @@ import http from "node:http";
 import { startUiServer, type UiServerOptions, type UiServerHandle } from "../ui-server.ts";
 import type { McpServerManager } from "../server-manager.ts";
 import type { ConsentManager } from "../consent-manager.ts";
-import type { UiResourceContent } from "../types.ts";
+import type { McpConfig, UiResourceContent } from "../types.ts";
+import type { McpExtensionState } from "../state.ts";
 
 // Helper to make HTTP requests to the server
 async function request(
@@ -557,6 +558,39 @@ describe("UiServer", () => {
         undefined,
         requestOptions,
       );
+    });
+
+    it("returns a gated iframe call as an approval_denied tool result", async () => {
+      const mockClient = { callTool: vi.fn() };
+      const manager = createMockManager({
+        getConnection: vi.fn().mockReturnValue({ status: "connected", client: mockClient }),
+      });
+      const config: McpConfig = {
+        mcpServers: { "test-server": { command: "demo", approveTools: true } },
+      };
+      const state = {
+        config,
+        approvedToolCalls: new Map(),
+        ui: { select: vi.fn().mockResolvedValue("Deny") },
+      } as unknown as McpExtensionState;
+      handle = await startUiServer(createServerOptions({ manager, config, state }));
+
+      const res = await request(`http://localhost:${handle.port}/proxy/tools/call`, {
+        method: "POST",
+        body: {
+          token: handle.sessionToken,
+          params: { name: "some_tool", arguments: { dangerous: true } },
+        },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        ok: true,
+        result: {
+          details: { error: "approval_denied", server: "test-server", tool: "some_tool" },
+        },
+      });
+      expect(mockClient.callTool).not.toHaveBeenCalled();
     });
 
     it("checks consent before calling tool", async () => {

@@ -17,6 +17,7 @@ import { createMcpDirectToolCallRenderer, renderMcpProxyToolCall, renderMcpToolR
 import { toolErrorOverride } from "./error-signal.ts";
 import { createMcpRuntimeOwner, createOwnedUi, isAbortError, type McpRuntimeOwner } from "./runtime-owner.ts";
 import { publishMcpStatusShutdown } from "./mcp-status.ts";
+import { runMcpCode } from "./mcp-code.ts";
 
 export type { McpAdapterOptions } from "./types.ts";
 export {
@@ -606,6 +607,52 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
     },
   });
 
+  if (earlyConfig.settings?.codeMode === true) {
+    (pi.registerTool as (tool: unknown) => unknown)({
+      name: "mcp_code",
+      label: "MCP Code",
+      description: "Run plain JavaScript that can call MCP tools through the flat tools.<prefixedToolName>(args) proxy. For tool names with hyphens or other non-identifier characters, use bracket syntax: tools[\"server_tool-name\"](args).",
+      promptSnippet: "Run plain JavaScript to chain and filter MCP tool calls in one request",
+      parameters: Type.Object({
+        code: Type.String({ description: "Plain JavaScript to execute. Use tools.<prefixedToolName>(args) and emit(value)." }),
+        // Raw JSON schema: host TypeBox shims may omit Type.Number (see index-lifecycle shim test).
+        timeoutMs: Type.Optional({ type: "number", minimum: 1, description: "Execution timeout in milliseconds (default: 30000)" } as any),
+      }),
+      renderResult: renderMcpToolResult,
+      async execute(_toolCallId, params: { code: string; timeoutMs?: number }, signal) {
+        const executeOwner = currentOwner;
+        if (!state && initPromise) {
+          try {
+            const initialized = await awaitWithTimeout(initPromise, INIT_WAIT_TIMEOUT_MS);
+            if (initialized === INIT_WAIT_TIMED_OUT) {
+              return {
+                content: [{ type: "text" as const, text: "MCP initialization is still in progress. Try again shortly." }],
+                details: { mode: "code", error: "init_timeout", timeoutMs: INIT_WAIT_TIMEOUT_MS },
+              };
+            }
+            executeOwner?.throwIfInactive();
+            state = initialized;
+          } catch (error) {
+            if (executeOwner && isAbortError(error, executeOwner.signal)) throw error;
+            const message = error instanceof Error ? error.message : String(error);
+            return {
+              content: [{ type: "text" as const, text: `MCP initialization failed: ${message}` }],
+              details: { mode: "code", error: "init_failed", message },
+            };
+          }
+        }
+        if (!state) {
+          return {
+            content: [{ type: "text" as const, text: "MCP not initialized" }],
+            details: { mode: "code", error: "not_initialized" },
+          };
+        }
+        executeOwner?.throwIfInactive();
+        return runMcpCode(state, params.code, params.timeoutMs, getPiTools, signal);
+      },
+    });
+  }
+
   function registerProxyTool(description: string): void {
     (pi.registerTool as (tool: unknown) => unknown)({
       name: "mcp",
@@ -628,6 +675,9 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
         search: Type.Optional(Type.String({ description: "Search tools by name/description" })),
         regex: Type.Optional(Type.Boolean({ description: "Treat search as regex (default: substring match)" })),
         includeSchemas: Type.Optional(Type.Boolean({ description: "Include parameter schemas in search results (default: true)" })),
+        // Raw JSON schema: host TypeBox shims may omit Type.Number (see index-lifecycle shim test).
+        limit: Type.Optional({ type: "number", minimum: 1, description: "Maximum search results to return (default: 12)" } as any),
+        offset: Type.Optional({ type: "number", minimum: 0, description: "Search result offset (default: 0)" } as any),
         server: Type.Optional(Type.String({ description: "Filter to specific server (also disambiguates tool calls)" })),
         action: Type.Optional(Type.String({ description: "Action: 'ui-messages', 'auth-start', or 'auth-complete'" })),
       }),
@@ -641,6 +691,8 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
         search?: string;
         regex?: boolean;
         includeSchemas?: boolean;
+        limit?: number;
+        offset?: number;
         server?: string;
         action?: string;
       }, signal, _onUpdate, _ctx) {
@@ -742,8 +794,8 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
         if (params.instructions) {
           return executeInstructions(state, params.instructions);
         }
-        if (params.search) {
-          return executeSearch(state, params.search, params.regex, params.server, params.includeSchemas);
+        if (params.search !== undefined) {
+          return executeSearch(state, params.search, params.regex, params.server, params.includeSchemas, params.limit, params.offset);
         }
         if (params.server) {
           return executeList(state, params.server);

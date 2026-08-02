@@ -147,6 +147,7 @@ export async function initializeMcp(
   const serverInstructions = new Map<string, string>();
   const failureTracker = new Map<string, number>();
   const failureMessages = new Map<string, string>();
+  const approvedToolCalls = new Map<string, true>();
   const uiResourceHandler = new UiResourceHandler(manager, config);
   const consentManager = new ConsentManager("once-per-server");
   const state: McpExtensionState = {
@@ -164,6 +165,7 @@ export async function initializeMcp(
     authStorageOptions,
     failureTracker,
     failureMessages,
+    approvedToolCalls,
     uiResourceHandler,
     consentManager,
     uiServer: null,
