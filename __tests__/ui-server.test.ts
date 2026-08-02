@@ -117,6 +117,7 @@ function createMockManager(overrides: Partial<McpServerManager> = {}): McpServer
       client: {
         callTool: vi.fn().mockResolvedValue({ content: [{ type: "text", text: "result" }] }),
       },
+      tools: [{ name: "some_tool" }],
     }),
     touch: vi.fn(),
     incrementInFlight: vi.fn(),
@@ -532,7 +533,11 @@ describe("UiServer", () => {
       };
       const requestOptions = { timeout: 4321 };
       const manager = createMockManager({
-        getConnection: vi.fn().mockReturnValue({ status: "connected", client: mockClient }),
+        getConnection: vi.fn().mockReturnValue({
+          status: "connected",
+          client: mockClient,
+          tools: [{ name: "some_tool" }],
+        }),
         getRequestOptions: vi.fn().mockReturnValue(requestOptions),
       });
       handle = await startUiServer(createServerOptions({ manager }));
@@ -564,7 +569,11 @@ describe("UiServer", () => {
     it("returns a gated iframe call as an approval_denied tool result", async () => {
       const mockClient = { callTool: vi.fn() };
       const manager = createMockManager({
-        getConnection: vi.fn().mockReturnValue({ status: "connected", client: mockClient }),
+        getConnection: vi.fn().mockReturnValue({
+          status: "connected",
+          client: mockClient,
+          tools: [{ name: "some_tool" }],
+        }),
       });
       const config: McpConfig = {
         mcpServers: { "test-server": { command: "demo", approveTools: true } },
@@ -653,6 +662,54 @@ describe("UiServer", () => {
 
       expect(res.status).toBe(403);
       expect(res.body).toEqual({ ok: false, error: 'MCP tool "model_only" is not callable by apps' });
+      expect(mockClient.callTool).not.toHaveBeenCalled();
+    });
+
+    it("rejects app calls when the tool definition is unavailable", async () => {
+      const mockClient = { callTool: vi.fn() };
+      const manager = createMockManager({
+        getConnection: vi.fn().mockReturnValue({
+          status: "connected",
+          client: mockClient,
+          tools: [],
+        }),
+      });
+      handle = await startUiServer(createServerOptions({ manager }));
+
+      const res = await request(`http://localhost:${handle.port}/proxy/tools/call`, {
+        method: "POST",
+        body: {
+          token: handle.sessionToken,
+          params: { name: "unlisted", arguments: {} },
+        },
+      });
+
+      expect(res.status).toBe(403);
+      expect(res.body).toEqual({ ok: false, error: 'MCP tool "unlisted" is not callable by apps' });
+      expect(mockClient.callTool).not.toHaveBeenCalled();
+    });
+
+    it("rejects app calls when the tool list is unavailable", async () => {
+      const mockClient = { callTool: vi.fn() };
+      const manager = createMockManager({
+        getConnection: vi.fn().mockReturnValue({
+          status: "connected",
+          client: mockClient,
+          tools: undefined,
+        }),
+      });
+      handle = await startUiServer(createServerOptions({ manager }));
+
+      const res = await request(`http://localhost:${handle.port}/proxy/tools/call`, {
+        method: "POST",
+        body: {
+          token: handle.sessionToken,
+          params: { name: "unknown", arguments: {} },
+        },
+      });
+
+      expect(res.status).toBe(403);
+      expect(res.body).toEqual({ ok: false, error: 'MCP tool "unknown" is not callable by apps' });
       expect(mockClient.callTool).not.toHaveBeenCalled();
     });
 

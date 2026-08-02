@@ -360,8 +360,13 @@ export async function startUiServer(options: UiServerOptions): Promise<UiServerH
           return;
         }
 
-        const toolDefinition = connection.tools?.find((tool) => tool.name === callParams.name);
-        const uiVisibility = extractUiToolVisibility(toolDefinition?._meta);
+        const toolDefinitions = Array.isArray(connection.tools) ? connection.tools : [];
+        const toolDefinition = toolDefinitions.find((tool) => tool.name === callParams.name);
+        if (!toolDefinition) {
+          sendJson(res, 403, { ok: false, error: `MCP tool "${callParams.name}" is not callable by apps` });
+          return;
+        }
+        const uiVisibility = extractUiToolVisibility(toolDefinition._meta);
         if (!isUiToolCallableByApp(uiVisibility)) {
           sendJson(res, 403, { ok: false, error: `MCP tool "${callParams.name}" is not callable by apps` });
           return;
