@@ -199,6 +199,21 @@ describe("runMcpScript", () => {
     });
   });
 
+  it("returns promptly on early return and marks un-awaited calls incomplete", async () => {
+    const start = Date.now();
+    const result = await runMcpScript(
+      state,
+      'tools.fixture_hang({}); return "early";',
+      5_000,
+    );
+
+    expect(Date.now() - start).toBeLessThan(2_000);
+    expect(result.details).not.toHaveProperty("error");
+    expect(result.details).toMatchObject({
+      calls: [{ path: "fixture_hang", ok: false, error: "incomplete" }],
+    });
+  });
+
   it("terminates synchronous runaway code after an awaited tool call", async () => {
     const result = await runMcpScript(
       state,

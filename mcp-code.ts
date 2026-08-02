@@ -268,6 +268,12 @@ export async function runMcpScript(
   } finally {
     clearTimeout(timer);
     removeAbortListener();
+    // "incomplete" means the call had not settled when the script finished
+    // (deadline, abort, or early return). Snapshot before aborting stragglers.
+    callsSnapshot ??= [...calls];
+    // A script may finish without awaiting every call; abort leftovers so
+    // parent-side dispatches do not outlive the script.
+    timeoutController.abort(new Error("mcp_script finished"));
     await worker?.terminate();
   }
 
@@ -282,7 +288,6 @@ export async function runMcpScript(
       mode: "script",
       ...(errorCode ? { error: errorCode, message: errorMessage } : {}),
       timeoutMs: resolvedTimeoutMs,
-      // Timeout/abort snapshots preserve the deadline state before parent-side calls settle.
       ...((callsSnapshot ?? calls).length > 0 ? { calls: [...(callsSnapshot ?? calls)] } : {}),
       ...guardedMcpDetails(guarded),
     },
