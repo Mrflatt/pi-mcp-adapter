@@ -257,12 +257,36 @@ export interface UiSessionMessages {
   prompts: string[];
   notifications: string[];
   intents: Array<{ intent: string; params?: Record<string, unknown> }>;
+  contexts?: UiModelContextUpdate[];
+}
+
+export interface UiModelContextUpdate {
+  summary: string;
+  truncated: boolean;
+  payload?: Record<string, unknown>;
 }
 
 export interface UiModelContextParams {
   content?: unknown[];
   structuredContent?: Record<string, unknown>;
   [key: string]: unknown;
+}
+
+export function createUiModelContextUpdate(params: UiModelContextParams, maxChars = 12_000): UiModelContextUpdate | undefined {
+  const payload = Object.fromEntries(
+    Object.entries(params).filter(([, value]) => value !== undefined),
+  );
+  if (Object.keys(payload).length === 0) return undefined;
+
+  const serialized = JSON.stringify(payload);
+  if (serialized.length <= maxChars) {
+    return { payload, summary: serialized, truncated: false };
+  }
+
+  return {
+    summary: `${serialized.slice(0, Math.max(0, maxChars - 1))}…`,
+    truncated: true,
+  };
 }
 
 export interface UiOpenLinkResult {

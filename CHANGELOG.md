@@ -21,7 +21,7 @@ The ranked search scoring, did-you-mean suggestions, approval patterns, endpoint
 
 ### Fixed
 - Brought MCP Apps UI hosting in line with the current spec: provider HTML now runs in a real sandbox, gets a restrictive default CSP even when the resource omits one, and `_meta.ui.visibility` is honored so app-only tools stay out of the model tool list while model-only tools cannot be called from the UI.
-- MCP Apps UI sessions are now easier to open from Moshi and remote terminals: the local UI server uses Moshi-discoverable low ports, answers preview discovery probes, serves a loopback-only landing shell, prints Moshi/SSH access hints for remote sessions, and fits the host shell better in narrow in-app browsers.
+- MCP Apps UI sessions are now easier to open from Moshi and remote terminals: the local UI server uses Moshi-discoverable low ports, answers preview discovery probes, serves a loopback-only landing shell, prints Moshi/SSH access hints for remote sessions, and fits the host shell better in narrow in-app browsers. UI-submitted model context is now captured as a bounded handoff, wakes the agent like prompts and intents, and remains available through `mcp({ action: "ui-messages" })` after the UI closes.
 
 ## [2.17.0] - 2026-07-31
 

@@ -56,6 +56,7 @@ function makeState() {
     uiServer: null,
     completedUiSessions: [],
     openBrowser: vi.fn(async () => undefined),
+    sendMessage: vi.fn(),
     ui: {
       notify: vi.fn(),
       setStatus: vi.fn(),
@@ -92,6 +93,37 @@ describe("remote MCP UI viewers", () => {
     expect(glimpseMocks.openGlimpseWindow).not.toHaveBeenCalled();
     expect(state.ui.notify).toHaveBeenCalledWith(expect.stringContaining("This looks like a remote session"), "info");
     expect(state.ui.notify).toHaveBeenCalledWith(expect.stringContaining("SSH: run `ssh -L"), "info");
+
+    runtime?.close("test-cleanup");
+  });
+});
+
+describe("MCP UI context submissions", () => {
+  it("triggers an agent turn when the UI updates model context", async () => {
+    process.env.MCP_UI_VIEWER = "none";
+    const { state } = makeState();
+
+    const runtime = await maybeStartUiSession(state, {
+      serverName: "demo",
+      toolName: "app",
+      toolArgs: {},
+      uiResourceUri: "ui://app",
+    });
+
+    await fetch(`${runtime!.url.replace(/\/?\?.*$/, "")}/proxy/ui/context`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: state.uiServer.sessionToken, params: { content: [{ type: "text", text: "Use this selection" }] } }),
+    });
+
+    expect(state.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customType: "mcp-ui-context",
+        content: [{ type: "text", text: expect.stringContaining("Use this selection") }],
+        display: "UI Context submitted",
+      }),
+      { triggerTurn: true },
+    );
 
     runtime?.close("test-cleanup");
   });

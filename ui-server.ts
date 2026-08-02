@@ -18,6 +18,7 @@ import { SessionRecoveryAuthRequiredError, withSessionRecovery, type SessionReco
 import { ensureToolCallApproved, isToolCallApprovalRequired } from "./tool-approval.ts";
 import { extractUiToolVisibility, isUiToolCallableByApp } from "./ui-tool-visibility.ts";
 import {
+  createUiModelContextUpdate,
   extractUiPromptText,
   getVisualizationStreamEnvelope,
   isServerDisabled,
@@ -40,6 +41,7 @@ const MAX_BODY_SIZE = 2 * 1024 * 1024;
 const ABANDONED_GRACE_MS = 60_000;
 const WATCHDOG_INTERVAL_MS = 5_000;
 const MAX_EVENT_LOG = 128;
+const MAX_CONTEXT_UPDATES = 20;
 const MOSHI_DISCOVERY_PORT_START = 8377;
 const MOSHI_DISCOVERY_PORT_END = 8396;
 let nextMoshiDiscoveryPort = MOSHI_DISCOVERY_PORT_START;
@@ -115,6 +117,7 @@ export async function startUiServer(options: UiServerOptions): Promise<UiServerH
     prompts: [],
     notifications: [],
     intents: [],
+    contexts: [],
   };
 
   const hostContext: UiHostContext = {
@@ -498,7 +501,15 @@ export async function startUiServer(options: UiServerOptions): Promise<UiServerH
 
       if (url.pathname === "/proxy/ui/context") {
         const ctxParams = params as UiModelContextParams;
-        log.debug("UI context update", { hasContent: !!ctxParams.content });
+        const update = createUiModelContextUpdate(ctxParams);
+        if (update) {
+          sessionMessages.contexts ??= [];
+          sessionMessages.contexts.push(update);
+          while (sessionMessages.contexts.length > MAX_CONTEXT_UPDATES) {
+            sessionMessages.contexts.shift();
+          }
+        }
+        log.debug("UI context update", { hasContent: !!ctxParams.content, hasUpdate: !!update });
         await options.onContextUpdate?.(ctxParams);
         sendJson(res, 200, { ok: true, result: {} });
         return;

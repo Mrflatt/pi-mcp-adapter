@@ -1075,7 +1075,7 @@ describe("UiServer", () => {
   });
 
   describe("POST /proxy/ui/context", () => {
-    it("forwards context to callback", async () => {
+    it("stores and forwards context updates", async () => {
       const onContextUpdate = vi.fn();
       handle = await startUiServer(createServerOptions({ onContextUpdate }));
 
@@ -1089,6 +1089,28 @@ describe("UiServer", () => {
 
       expect(res.status).toBe(200);
       expect(onContextUpdate).toHaveBeenCalledWith({ content: "some context data" });
+      expect(handle.getSessionMessages().contexts).toEqual([{
+        payload: { content: "some context data" },
+        summary: '{"content":"some context data"}',
+        truncated: false,
+      }]);
+    });
+
+    it("bounds oversized context updates", async () => {
+      handle = await startUiServer(createServerOptions());
+
+      const res = await request(`http://localhost:${handle.port}/proxy/ui/context`, {
+        method: "POST",
+        body: {
+          token: handle.sessionToken,
+          params: { content: "x".repeat(12_100) },
+        },
+      });
+
+      expect(res.status).toBe(200);
+      expect(handle.getSessionMessages().contexts?.[0]).toMatchObject({ truncated: true });
+      expect(handle.getSessionMessages().contexts?.[0].summary.length).toBeLessThanOrEqual(12_000);
+      expect(handle.getSessionMessages().contexts?.[0].payload).toBeUndefined();
     });
   });
 

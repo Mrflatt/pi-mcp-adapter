@@ -4,6 +4,7 @@ import net from "node:net";
 import { UrlElicitationRequiredError, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { McpExtensionState } from "./state.ts";
 import {
+  createUiModelContextUpdate,
   extractUiPromptText,
   UI_STREAM_HOST_CONTEXT_KEY,
   UI_STREAM_REQUEST_META_KEY,
@@ -364,10 +365,23 @@ export async function maybeStartUiSession(
       },
 
       onContextUpdate: (params: UiModelContextParams) => {
+        const update = createUiModelContextUpdate(params);
         log.debug("Model context update from UI", {
           hasContent: !!params.content,
           hasStructured: !!params.structuredContent,
+          hasUpdate: !!update,
         });
+        if (update && state.sendMessage) {
+          state.sendMessage(
+            {
+              customType: "mcp-ui-context",
+              content: [{ type: "text", text: `User submitted model context from ${request.serverName} UI:\n${update.summary}` }],
+              display: "UI Context submitted",
+              details: { server: request.serverName, tool: request.toolName, context: update },
+            },
+            { triggerTurn: true },
+          );
+        }
       },
 
       onComplete: (reason: string) => {
@@ -381,6 +395,7 @@ export async function maybeStartUiSession(
             messages.prompts.length > 0 ||
             messages.intents.length > 0 ||
             messages.notifications.length > 0 ||
+            (messages.contexts?.length ?? 0) > 0 ||
             !!stream;
 
           if (hasContent) {
@@ -402,6 +417,7 @@ export async function maybeStartUiSession(
               prompts: messages.prompts.length,
               intents: messages.intents.length,
               notifications: messages.notifications.length,
+              contexts: messages.contexts?.length ?? 0,
               streamFrames: stream?.frames ?? 0,
             });
           }
