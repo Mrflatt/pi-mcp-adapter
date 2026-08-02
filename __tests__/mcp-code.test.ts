@@ -51,6 +51,29 @@ describe("runMcpScript", () => {
     await manager.closeAll();
   });
 
+  it("searches the script-visible tool catalog with pagination and server filtering", async () => {
+    const result = await runMcpScript(
+      state,
+      'return { first: tools.search({ query: "fixture", limit: 1 }), second: tools.search({ query: "fixture", limit: 1, offset: 1, server: "fixture" }), empty: tools.search({ query: "" }) };',
+    );
+
+    expect(JSON.parse(textBlocks(result).at(-1)!)).toEqual({
+      first: {
+        items: [{ path: "fixture_echo", name: "echo", server: "fixture", description: "Echo a value", score: expect.any(Number) }],
+        total: 2,
+        hasMore: true,
+        nextOffset: 1,
+      },
+      second: {
+        items: [{ path: "fixture_fail", name: "fail", server: "fixture", description: "Return an MCP tool error", score: expect.any(Number) }],
+        total: 2,
+        hasMore: false,
+        nextOffset: null,
+      },
+      empty: { items: [], total: 0, hasMore: false, nextOffset: null },
+    });
+  });
+
   it("calls a prefixed MCP tool through the flat tools proxy", async () => {
     const result = await runMcpScript(
       state,
@@ -108,7 +131,7 @@ describe("runMcpScript", () => {
     );
 
     expect(JSON.parse(textBlocks(result)[0])).toEqual({
-      message: "tools is not enumerable — use mcp({ search })",
+      message: "tools is not enumerable — use tools.search({ query })",
       globals: ["undefined", "undefined", "undefined"],
     });
   });

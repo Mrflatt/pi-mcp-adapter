@@ -4,11 +4,12 @@ import vm from "node:vm";
 import { guardMcpOutput, guardedMcpDetails, resolveMcpOutputGuardOptions } from "./mcp-output-guard.ts";
 import { executeCall } from "./proxy-modes.ts";
 import { combineAbortSignals } from "./runtime-owner.ts";
+import { paginate, rankToolMatches } from "./search-ranking.ts";
 import type { McpExtensionState } from "./state.ts";
 import type { ContentBlock } from "./types.ts";
 
 export const DEFAULT_MCP_SCRIPT_TIMEOUT_MS = 30_000;
-const TOOLS_ENUMERATION_ERROR = "tools is not enumerable — use mcp({ search })";
+const TOOLS_ENUMERATION_ERROR = "tools is not enumerable — use tools.search({ query })";
 
 class McpScriptTimeoutError extends Error {
   constructor(timeoutMs: number) {
@@ -83,6 +84,27 @@ export async function runMcpScript(
 
   const tools = new Proxy(Object.create(null) as Record<string, unknown>, {
     get(_target, property) {
+      if (property === "search") {
+        return (input?: { query?: unknown; server?: unknown; limit?: unknown; offset?: unknown }) => {
+          if (typeof input?.query !== "string" || input.query.trim() === "") {
+            return { items: [], total: 0, hasMore: false, nextOffset: null };
+          }
+          const server = typeof input.server === "string" ? input.server : undefined;
+          const limit = typeof input.limit === "number" ? input.limit : 12;
+          const offset = typeof input.offset === "number" ? input.offset : 0;
+          const page = paginate(rankToolMatches(state, input.query, server), offset, limit);
+          return {
+            ...page,
+            items: page.items.map(({ server: matchServer, tool, score }) => ({
+              path: tool.name,
+              name: tool.originalName,
+              server: matchServer,
+              ...(tool.description ? { description: tool.description } : {}),
+              score,
+            })),
+          };
+        };
+      }
       if (typeof property !== "string") return undefined;
       return async (args?: Record<string, unknown>) => {
         const result = await executeCall(state, property, args, undefined, getPiTools, callSignal);
