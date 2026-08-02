@@ -63,6 +63,16 @@ describe("buildHostHtmlTemplate", () => {
       expect(html).toContain('id="done-btn"');
       expect(html).toContain('id="cancel-btn"');
     });
+
+    it("includes mobile and in-app-browser host shell affordances", () => {
+      const html = buildHostHtmlTemplate(createMinimalInput());
+
+      expect(html).toContain("min-height: 100dvh");
+      expect(html).toContain("env(safe-area-inset-top");
+      expect(html).toContain("@media (max-width: 640px)");
+      expect(html).toContain('id="completion-overlay"');
+      expect(html).toContain("closeOrShowDone");
+    });
   });
 
   describe("data injection", () => {

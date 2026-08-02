@@ -1,4 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import net from "node:net";
 import { UrlElicitationRequiredError, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { McpExtensionState } from "./state.ts";
 import {
@@ -121,18 +123,66 @@ function withStreamEnvelope(
   };
 }
 
-async function openInBrowser(state: McpExtensionState, url: string, signal: AbortSignal): Promise<void> {
+async function openInBrowser(state: McpExtensionState, url: string, signal: AbortSignal): Promise<string | null> {
   throwIfAborted(signal);
   try {
     await state.openBrowser(url);
     throwIfAborted(signal);
+    return null;
   } catch (error) {
     if (isAbortError(error, signal)) throw error;
     const message = error instanceof Error ? error.message : String(error);
-    if (state.owner?.isActive() === false) return;
+    if (state.owner?.isActive() === false) return null;
     state.ui?.notify(`MCP UI browser open failed: ${message}`, "warning");
-    state.ui?.notify(`Open manually: ${url}`, "info");
+    return message;
   }
+}
+
+function isRemoteSession(): boolean {
+  return Boolean(process.env.SSH_CONNECTION || process.env.SSH_TTY);
+}
+
+function hasActiveRemoteLogin(): boolean {
+  try {
+    const out = execFileSync("who", { encoding: "utf8", timeout: 2000 });
+    return /\(.+\)\s*$/m.test(out);
+  } catch {
+    return false;
+  }
+}
+
+function probeMoshiGateway(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: "127.0.0.1", port: 24543 });
+    const done = (ok: boolean) => {
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(300);
+    socket.once("connect", () => done(true));
+    socket.once("timeout", () => done(false));
+    socket.once("error", () => done(false));
+  });
+}
+
+function remoteAccessHint(opts: { url: string; port: number; moshi: boolean; openError: string | null }): string {
+  const lines = [
+    opts.openError === null
+      ? "This looks like a remote session - if no MCP UI appeared, open it from your own device:"
+      : "Couldn't open MCP UI here. Open it from your own device:",
+    `  ${opts.url}`,
+  ];
+  if (opts.openError !== null) {
+    lines.push(`Browser launch failed: ${opts.openError}`);
+  }
+  if (opts.moshi) {
+    lines.push("Moshi: tap the preview button in the terminal title bar and pick this MCP UI server.");
+  }
+  lines.push(
+    `SSH: run \`ssh -L ${opts.port}:127.0.0.1:${opts.port} <this-host>\` on your local machine, then open the URL above.`,
+    "mosh can't forward ports - run that ssh command in a separate terminal.",
+  );
+  return lines.join("\n");
 }
 
 export async function maybeStartUiSession(
@@ -388,6 +438,16 @@ export async function maybeStartUiSession(
 
     let viewer: UiSessionViewer = "browser";
     let windowOpen = true;
+    const remoteByEnv = isRemoteSession();
+    const remoteLikely = remoteByEnv || hasActiveRemoteLogin();
+    const emitRemoteHint = async (openError: string | null) => {
+      state.ui?.notify(remoteAccessHint({
+        url: handle.url,
+        port: handle.port,
+        moshi: await probeMoshiGateway(),
+        openError,
+      }), openError === null ? "info" : "warning");
+    };
 
     if (uiSuppressed) {
       viewer = "suppressed";
@@ -395,9 +455,9 @@ export async function maybeStartUiSession(
       state.ui?.notify(`MCP UI window suppressed (MCP_UI_VIEWER=${viewerPref}). Open manually: ${handle.url}`, "info");
       log.info("Suppressing MCP UI window (MCP_UI_VIEWER=" + viewerPref + ")", { url: handle.url });
     } else {
-      const glimpseDetected = isGlimpseAvailable();
-      const useGlimpse = viewerPref === "glimpse" ||
-        (viewerPref !== "browser" && glimpseDetected);
+      const glimpseDetected = !remoteByEnv && isGlimpseAvailable();
+      const useGlimpse = !remoteByEnv && (viewerPref === "glimpse" ||
+        (viewerPref !== "browser" && glimpseDetected));
 
       if (useGlimpse) {
         try {
@@ -417,15 +477,24 @@ export async function maybeStartUiSession(
           }
           activeGlimpseWindow = glimpseWindow;
           viewer = "glimpse";
+          if (remoteLikely) {
+            await emitRemoteHint(null);
+          }
         } catch (error) {
           log.debug("Glimpse unavailable, using browser", {
             error: error instanceof Error ? error.message : String(error),
           });
-          await openInBrowser(state, handle.url, runtimeSignal!);
+          const openError = await openInBrowser(state, handle.url, runtimeSignal!);
+          if (openError !== null || remoteLikely) {
+            await emitRemoteHint(openError);
+          }
           viewer = "browser";
         }
       } else {
-        await openInBrowser(state, handle.url, runtimeSignal!);
+        const openError = await openInBrowser(state, handle.url, runtimeSignal!);
+        if (openError !== null || remoteLikely) {
+          await emitRemoteHint(openError);
+        }
       }
     }
 

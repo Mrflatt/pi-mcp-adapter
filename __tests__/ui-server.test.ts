@@ -173,10 +173,11 @@ describe("UiServer", () => {
   });
 
   describe("startUiServer", () => {
-    it("starts server on random port", async () => {
+    it("starts server on a Moshi-discoverable low port by default", async () => {
       handle = await startUiServer(createServerOptions());
 
-      expect(handle.port).toBeGreaterThan(0);
+      expect(handle.port).toBeGreaterThanOrEqual(8377);
+      expect(handle.port).toBeLessThanOrEqual(8396);
       expect(handle.url).toContain(`http://localhost:${handle.port}`);
       expect(handle.sessionToken).toBeTruthy();
     });
@@ -235,13 +236,37 @@ describe("UiServer", () => {
       expect(res.body).toEqual({ ok: false, error: "Invalid session" });
     });
 
-    it("rejects missing session token", async () => {
+    it("serves a tokenless loopback landing shell for Moshi preview", async () => {
       handle = await startUiServer(createServerOptions());
       const url = `http://localhost:${handle.port}/`;
 
       const res = await request(url);
 
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toContain("text/html");
+      expect(res.body).toContain("location.replace");
+      expect(res.body).toContain(encodeURIComponent(handle.sessionToken));
+    });
+
+    it("answers HEAD discovery probes without a session token", async () => {
+      handle = await startUiServer(createServerOptions());
+      const url = `http://localhost:${handle.port}/`;
+
+      const res = await request(url, { method: "HEAD" });
+
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toContain("text/html");
+      expect(res.body).toBe("");
+    });
+
+    it("rejects non-loopback Host headers before serving tokenless landing", async () => {
+      handle = await startUiServer(createServerOptions());
+      const url = `http://localhost:${handle.port}/`;
+
+      const res = await request(url, { headers: { Host: "attacker.example" } });
+
       expect(res.status).toBe(403);
+      expect(res.body).toBe("Invalid host");
     });
   });
 

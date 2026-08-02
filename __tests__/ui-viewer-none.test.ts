@@ -68,8 +68,33 @@ function makeState() {
 
 afterEach(() => {
   delete process.env.MCP_UI_VIEWER;
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
   glimpseMocks.isGlimpseAvailable.mockClear();
   glimpseMocks.openGlimpseWindow.mockClear();
+});
+
+describe("remote MCP UI viewers", () => {
+  it("skips Glimpse and prints a remote access hint for SSH sessions", async () => {
+    process.env.SSH_CONNECTION = "192.0.2.10 55555 127.0.0.1 22";
+    const { state } = makeState();
+
+    const runtime = await maybeStartUiSession(state, {
+      serverName: "demo",
+      toolName: "app",
+      toolArgs: {},
+      uiResourceUri: "ui://app",
+    });
+
+    expect(runtime).toMatchObject({ viewer: "browser", windowOpen: true });
+    expect(state.openBrowser).toHaveBeenCalledWith(expect.stringContaining("http://localhost:"));
+    expect(glimpseMocks.isGlimpseAvailable).not.toHaveBeenCalled();
+    expect(glimpseMocks.openGlimpseWindow).not.toHaveBeenCalled();
+    expect(state.ui.notify).toHaveBeenCalledWith(expect.stringContaining("This looks like a remote session"), "info");
+    expect(state.ui.notify).toHaveBeenCalledWith(expect.stringContaining("SSH: run `ssh -L"), "info");
+
+    runtime?.close("test-cleanup");
+  });
 });
 
 describe("MCP_UI_VIEWER=none", () => {
