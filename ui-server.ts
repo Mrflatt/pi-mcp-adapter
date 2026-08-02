@@ -3,9 +3,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { buildAllowAttribute } from "@modelcontextprotocol/ext-apps/app-bridge";
-import type {
-  CallToolRequest,
-  CallToolResult,
+import {
+  ContentBlockSchema,
+  type CallToolRequest,
+  type CallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { ConsentManager } from "./consent-manager.ts";
 import { ServerError, wrapError } from "./errors.ts";
@@ -500,7 +501,19 @@ export async function startUiServer(options: UiServerOptions): Promise<UiServerH
       }
 
       if (url.pathname === "/proxy/ui/context") {
-        const ctxParams = params as UiModelContextParams;
+        const content = params.content;
+        const structuredContent = params.structuredContent;
+        if (
+          (content !== undefined && (!Array.isArray(content) || content.some((block) => !ContentBlockSchema.safeParse(block).success))) ||
+          (structuredContent !== undefined && (!structuredContent || typeof structuredContent !== "object" || Array.isArray(structuredContent)))
+        ) {
+          sendJson(res, 400, { ok: false, error: "Invalid update-model-context params" });
+          return;
+        }
+        const ctxParams: UiModelContextParams = {
+          ...(content !== undefined ? { content: content as NonNullable<UiModelContextParams["content"]> } : {}),
+          ...(structuredContent !== undefined ? { structuredContent: structuredContent as Record<string, unknown> } : {}),
+        };
         const update = createUiModelContextUpdate(ctxParams);
         if (update) {
           sessionMessages.contexts.push(update);

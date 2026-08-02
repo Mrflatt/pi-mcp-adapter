@@ -1093,17 +1093,35 @@ describe("UiServer", () => {
         method: "POST",
         body: {
           token: handle.sessionToken,
-          params: { content: "some context data" },
+          params: { content: [{ type: "text", text: "some context data" }] },
         },
       });
 
       expect(res.status).toBe(200);
-      expect(onContextUpdate).toHaveBeenCalledWith({ content: "some context data" });
+      expect(onContextUpdate).toHaveBeenCalledWith({ content: [{ type: "text", text: "some context data" }] });
       expect(handle.getSessionMessages().contexts).toEqual([{
-        payload: { content: "some context data" },
-        summary: '{"content":"some context data"}',
+        payload: { content: [{ type: "text", text: "some context data" }] },
+        summary: '{"content":[{"type":"text","text":"some context data"}]}',
         truncated: false,
       }]);
+    });
+
+    it("rejects malformed context updates", async () => {
+      const onContextUpdate = vi.fn();
+      handle = await startUiServer(createServerOptions({ onContextUpdate }));
+
+      const res = await request(`http://localhost:${handle.port}/proxy/ui/context`, {
+        method: "POST",
+        body: {
+          token: handle.sessionToken,
+          params: { content: "some context data" },
+        },
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ ok: false, error: "Invalid update-model-context params" });
+      expect(onContextUpdate).not.toHaveBeenCalled();
+      expect(handle.getSessionMessages().contexts).toEqual([]);
     });
 
     it("bounds oversized context updates", async () => {
@@ -1113,7 +1131,7 @@ describe("UiServer", () => {
         method: "POST",
         body: {
           token: handle.sessionToken,
-          params: { content: "x".repeat(12_100) },
+          params: { content: [{ type: "text", text: "x".repeat(12_100) }] },
         },
       });
 

@@ -1,5 +1,6 @@
 // types.ts - Core type definitions
 import type { Transport as McpTransport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { ContentBlock as McpContentBlock } from "@modelcontextprotocol/sdk/types.js";
 import type { TextContent, ImageContent } from "@earendil-works/pi-ai";
 import type { UiStreamMode } from "./ui-stream-types.ts";
 import type { UiToolVisibility } from "./ui-tool-visibility.ts";
@@ -267,9 +268,8 @@ export interface UiModelContextUpdate {
 }
 
 export interface UiModelContextParams {
-  content?: unknown[];
+  content?: McpContentBlock[];
   structuredContent?: Record<string, unknown>;
-  [key: string]: unknown;
 }
 
 export function createUiModelContextUpdate(params: UiModelContextParams, maxChars = 12_000): UiModelContextUpdate | undefined {
