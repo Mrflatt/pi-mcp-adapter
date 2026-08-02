@@ -119,6 +119,7 @@ describe("runMcpScript", () => {
         },
       },
     });
+    expect(result.details).toMatchObject({ calls: [{ path: "fixture_echo", ok: true }] });
   });
 
   it("calls a prefixed MCP tool through the flat tools proxy", async () => {
@@ -148,6 +149,9 @@ describe("runMcpScript", () => {
         ok: false,
         error: { code: "tool_error", message: expect.stringContaining("fixture failure") },
       },
+    });
+    expect(result.details).toMatchObject({
+      calls: [{ path: "fixture_fail", ok: false, error: "tool_error" }],
     });
     expect(result.details).not.toHaveProperty("error");
   });

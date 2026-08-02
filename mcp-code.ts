@@ -84,6 +84,8 @@ export async function runMcpScript(
     debug: (...args: unknown[]) => emit(`[console.debug] ${formatWithOptions({ colors: false, depth: 4 }, ...args)}`),
   });
 
+  type ScriptCall = { path: string; ok: true } | { path: string; ok: false; error: string };
+  const calls: ScriptCall[] = [];
   const callTool = async (path: string, args?: Record<string, unknown>) => {
     const result = await executeCall(state, path, args, undefined, getPiTools, callSignal);
     const details = result.details;
@@ -91,11 +93,13 @@ export async function runMcpScript(
       const message = typeof details.message === "string"
         ? details.message
         : textFromContent(result.content);
+      calls.push({ path, ok: false, error: String(details.error) });
       return {
         ok: false as const,
         error: { code: String(details.error), message },
       };
     }
+    calls.push({ path, ok: true });
     return {
       ok: true as const,
       data: details.mcpResult !== undefined ? details.mcpResult : textFromContent(result.content),
@@ -245,6 +249,8 @@ export async function runMcpScript(
       mode: "script",
       ...(errorCode ? { error: errorCode, message: errorMessage } : {}),
       timeoutMs: resolvedTimeoutMs,
+      // Snapshot: a timed-out script may still be running and appending calls.
+      ...(calls.length > 0 ? { calls: [...calls] } : {}),
       ...guardedMcpDetails(guarded),
     },
   };
