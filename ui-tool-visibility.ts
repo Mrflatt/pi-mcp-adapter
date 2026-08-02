@@ -5,11 +5,12 @@ export function extractUiToolVisibility(meta: Record<string, unknown> | undefine
   const ui = meta.ui;
   if (!ui || typeof ui !== "object" || Array.isArray(ui)) return undefined;
   const visibility = (ui as Record<string, unknown>).visibility;
-  if (!Array.isArray(visibility)) return undefined;
+  if (visibility === undefined) return undefined;
+  if (!Array.isArray(visibility)) return [];
 
   const values: UiToolVisibility[] = [];
   for (const entry of visibility) {
-    if (entry !== "model" && entry !== "app") return undefined;
+    if (entry !== "model" && entry !== "app") return [];
     if (!values.includes(entry)) values.push(entry);
   }
   return values;

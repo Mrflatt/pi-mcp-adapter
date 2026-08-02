@@ -309,7 +309,7 @@ export async function startUiServer(options: UiServerOptions): Promise<UiServerH
         res.writeHead(200, {
           "Content-Type": "text/html; charset=utf-8",
           "Cache-Control": "no-store",
-          ...(cspContent ? { "Content-Security-Policy": cspContent } : {}),
+          "Content-Security-Policy": cspContent,
         });
         res.end(options.resource.html);
         return;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { reconstructToolMetadata, serializeTools } from "../metadata-cache.ts";
 import { buildToolMetadata } from "../tool-metadata.ts";
+import { extractUiToolVisibility, isUiToolCallableByApp, isUiToolVisibleToModel } from "../ui-tool-visibility.ts";
 import type { McpTool, ServerCacheEntry } from "../types.ts";
 
 const tools: McpTool[] = [
@@ -28,5 +29,19 @@ describe("MCP Apps tool visibility", () => {
     const metadata = reconstructToolMetadata("demo", entry, "server", {});
 
     expect(metadata.map((tool) => tool.originalName)).toEqual(["visible", "both"]);
+  });
+
+  it("fails closed for malformed visibility metadata", () => {
+    const visibility = extractUiToolVisibility({ ui: { visibility: ["app", "mdoel"] } });
+
+    expect(visibility).toEqual([]);
+    expect(isUiToolVisibleToModel(visibility)).toBe(false);
+    expect(isUiToolCallableByApp(visibility)).toBe(false);
+
+    const { metadata } = buildToolMetadata([
+      { name: "bad", _meta: { ui: { visibility: ["app", "mdoel"] } } },
+    ], [], {}, "demo", "server");
+
+    expect(metadata).toEqual([]);
   });
 });
