@@ -8,6 +8,7 @@ describe("UiSessionMessages", () => {
         prompts: [],
         notifications: [],
         intents: [],
+        contexts: [],
       };
 
       expect(messages.prompts).toHaveLength(0);
@@ -20,6 +21,7 @@ describe("UiSessionMessages", () => {
         prompts: ["What is the weather?", "Tell me more"],
         notifications: [],
         intents: [],
+        contexts: [],
       };
 
       expect(messages.prompts).toHaveLength(2);
@@ -31,6 +33,7 @@ describe("UiSessionMessages", () => {
         prompts: [],
         notifications: ["Task completed", "Error occurred"],
         intents: [],
+        contexts: [],
       };
 
       expect(messages.notifications).toHaveLength(2);
@@ -44,6 +47,7 @@ describe("UiSessionMessages", () => {
           { intent: "get_forecast", params: { days: 7, location: "NYC" } },
           { intent: "refresh" },
         ],
+        contexts: [],
       };
 
       expect(messages.intents).toHaveLength(2);
@@ -62,8 +66,8 @@ describe("UiSessionMessages", () => {
       };
 
       expect(messages.contexts).toHaveLength(1);
-      expect(messages.contexts?.[0]).toMatchObject({ truncated: false });
-      expect(messages.contexts?.[0].summary).toContain("selection");
+      expect(messages.contexts[0]).toMatchObject({ truncated: false });
+      expect(messages.contexts[0].summary).toContain("selection");
     });
   });
 

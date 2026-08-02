@@ -503,7 +503,6 @@ export async function startUiServer(options: UiServerOptions): Promise<UiServerH
         const ctxParams = params as UiModelContextParams;
         const update = createUiModelContextUpdate(ctxParams);
         if (update) {
-          sessionMessages.contexts ??= [];
           sessionMessages.contexts.push(update);
           while (sessionMessages.contexts.length > MAX_CONTEXT_UPDATES) {
             sessionMessages.contexts.shift();
@@ -745,7 +744,7 @@ function rememberMoshiDiscoveryPort(port: number): void {
 }
 
 function isAllowedHost(hostname: string): boolean {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
 }
 
 function isLoopbackAddress(address: string | undefined): boolean {

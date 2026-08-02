@@ -310,7 +310,7 @@ export async function maybeStartUiSession(
 
     let active = true;
     let nextStreamSequence = 0;
-    let handle: UiServerHandle | null = null;
+    let handle: UiServerHandle;
 
     const cleanupStreamListener = () => {
       if (streamToken) {
@@ -400,7 +400,7 @@ export async function maybeStartUiSession(
             messages.prompts.length > 0 ||
             messages.intents.length > 0 ||
             messages.notifications.length > 0 ||
-            (messages.contexts?.length ?? 0) > 0 ||
+            messages.contexts.length > 0 ||
             !!stream;
 
           if (hasContent) {
@@ -422,7 +422,7 @@ export async function maybeStartUiSession(
               prompts: messages.prompts.length,
               intents: messages.intents.length,
               notifications: messages.notifications.length,
-              contexts: messages.contexts?.length ?? 0,
+              contexts: messages.contexts.length,
               streamFrames: stream?.frames ?? 0,
             });
           }
@@ -438,7 +438,6 @@ export async function maybeStartUiSession(
 
     if (state.owner?.isActive() === false || runtimeSignal.aborted) {
       handle.close("runtime_owner_stopped");
-      handle = null;
       throwIfAborted(runtimeSignal);
       throw new Error("MCP UI session became stale before registration");
     }
@@ -460,16 +459,6 @@ export async function maybeStartUiSession(
     let viewer: UiSessionViewer = "browser";
     let windowOpen = true;
     const remoteByEnv = isRemoteSession();
-    const remoteLikely = remoteByEnv || await hasActiveRemoteLogin();
-    const emitRemoteHint = async (openError: string | null, openedOnHost = false) => {
-      state.ui?.notify(remoteAccessHint({
-        url: handle.url,
-        port: handle.port,
-        moshi: await probeMoshiGateway(),
-        openError,
-        openedOnHost,
-      }), openError === null ? "info" : "warning");
-    };
 
     if (uiSuppressed) {
       viewer = "suppressed";
@@ -477,6 +466,16 @@ export async function maybeStartUiSession(
       state.ui?.notify(`MCP UI window suppressed (MCP_UI_VIEWER=${viewerPref}). Open manually: ${handle.url}`, "info");
       log.info("Suppressing MCP UI window (MCP_UI_VIEWER=" + viewerPref + ")", { url: handle.url });
     } else {
+      const remoteLikely = remoteByEnv || await hasActiveRemoteLogin();
+      const emitRemoteHint = async (openError: string | null, openedOnHost = false) => {
+        state.ui?.notify(remoteAccessHint({
+          url: handle.url,
+          port: handle.port,
+          moshi: await probeMoshiGateway(),
+          openError,
+          openedOnHost,
+        }), openError === null ? "info" : "warning");
+      };
       const glimpseDetected = !remoteByEnv && isGlimpseAvailable();
       const useGlimpse = !remoteByEnv && (viewerPref === "glimpse" ||
         (viewerPref !== "browser" && glimpseDetected));
@@ -506,14 +505,14 @@ export async function maybeStartUiSession(
           log.debug("Glimpse unavailable, using browser", {
             error: error instanceof Error ? error.message : String(error),
           });
-          const openError = await openInBrowser(state, handle.url, runtimeSignal!);
+          const openError = await openInBrowser(state, handle.url, runtimeSignal);
           if (openError !== null || remoteLikely) {
             await emitRemoteHint(openError);
           }
           viewer = "browser";
         }
       } else {
-        const openError = await openInBrowser(state, handle.url, runtimeSignal!);
+        const openError = await openInBrowser(state, handle.url, runtimeSignal);
         if (openError !== null || remoteLikely) {
           await emitRemoteHint(openError);
         }

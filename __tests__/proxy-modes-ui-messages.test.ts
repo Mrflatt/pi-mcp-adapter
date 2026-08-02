@@ -14,6 +14,7 @@ function createState(prompts: string[]): McpExtensionState {
           prompts,
           notifications: [],
           intents: [],
+          contexts: [],
         },
       },
     ],
@@ -72,11 +73,11 @@ describe("executeUiMessages", () => {
 
   it("returns submitted model context updates", () => {
     const state = createState([]);
-    state.completedUiSessions[0].messages.contexts = [{
+    state.completedUiSessions[0].messages.contexts.push({
       payload: { content: [{ type: "text", text: "Selected node A" }] },
       summary: '{"content":[{"type":"text","text":"Selected node A"}]}',
       truncated: false,
-    }];
+    });
 
     const result = executeUiMessages(state);
 

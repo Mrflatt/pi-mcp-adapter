@@ -133,8 +133,9 @@ describe("MCP UI context submissions", () => {
       toolArgs: {},
       uiResourceUri: "ui://app",
     });
+    if (!runtime) throw new Error("expected UI runtime");
 
-    await fetch(`${runtime!.url.replace(/\/?\?.*$/, "")}/proxy/ui/context`, {
+    await fetch(`${runtime.url.replace(/\/?\?.*$/, "")}/proxy/ui/context`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: state.uiServer.sessionToken, params: { content: [{ type: "text", text: "Use this selection" }] } }),
@@ -149,7 +150,7 @@ describe("MCP UI context submissions", () => {
       { triggerTurn: true },
     );
 
-    runtime?.close("test-cleanup");
+    runtime.close("test-cleanup");
   });
 });
 

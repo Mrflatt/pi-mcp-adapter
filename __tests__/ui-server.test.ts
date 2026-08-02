@@ -268,6 +268,16 @@ describe("UiServer", () => {
       expect(res.status).toBe(403);
       expect(res.body).toBe("Invalid host");
     });
+
+    it("accepts bracketed IPv6 loopback Host headers", async () => {
+      handle = await startUiServer(createServerOptions());
+      const url = `http://localhost:${handle.port}/`;
+
+      const res = await request(url, { headers: { Host: `[::1]:${handle.port}` } });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toContain("location.replace");
+    });
   });
 
   describe("GET /ui-app", () => {
@@ -1108,9 +1118,9 @@ describe("UiServer", () => {
       });
 
       expect(res.status).toBe(200);
-      expect(handle.getSessionMessages().contexts?.[0]).toMatchObject({ truncated: true });
-      expect(handle.getSessionMessages().contexts?.[0].summary.length).toBeLessThanOrEqual(12_000);
-      expect(handle.getSessionMessages().contexts?.[0].payload).toBeUndefined();
+      expect(handle.getSessionMessages().contexts[0]).toMatchObject({ truncated: true });
+      expect(handle.getSessionMessages().contexts[0].summary.length).toBeLessThanOrEqual(12_000);
+      expect(handle.getSessionMessages().contexts[0].payload).toBeUndefined();
     });
   });
 

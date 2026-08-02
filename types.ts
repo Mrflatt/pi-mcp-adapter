@@ -257,7 +257,7 @@ export interface UiSessionMessages {
   prompts: string[];
   notifications: string[];
   intents: Array<{ intent: string; params?: Record<string, unknown> }>;
-  contexts?: UiModelContextUpdate[];
+  contexts: UiModelContextUpdate[];
 }
 
 export interface UiModelContextUpdate {
