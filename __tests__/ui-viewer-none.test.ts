@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { execFile } from "node:child_process";
 import { ConsentManager } from "../consent-manager.ts";
 import { createDirectToolExecutor } from "../direct-tools.ts";
 import { executeCall } from "../proxy-modes.ts";
@@ -10,6 +11,9 @@ const glimpseMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../glimpse-ui.ts", () => glimpseMocks);
+vi.mock("node:child_process", () => ({
+  execFile: vi.fn((_command, _options, callback) => callback(null, "")),
+}));
 
 function textOf(result: any): string {
   return result.content.map((entry: any) => entry.text ?? "").join("\n");
@@ -56,6 +60,7 @@ function makeState() {
     uiServer: null,
     completedUiSessions: [],
     openBrowser: vi.fn(async () => undefined),
+    sendMessage: vi.fn(),
     ui: {
       notify: vi.fn(),
       setStatus: vi.fn(),
@@ -68,8 +73,85 @@ function makeState() {
 
 afterEach(() => {
   delete process.env.MCP_UI_VIEWER;
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
+  vi.mocked(execFile).mockImplementation((_command: any, _options: any, callback: any) => callback(null, "") as any);
   glimpseMocks.isGlimpseAvailable.mockClear();
   glimpseMocks.openGlimpseWindow.mockClear();
+});
+
+describe("remote MCP UI viewers", () => {
+  it("skips Glimpse and prints a remote access hint for SSH sessions", async () => {
+    process.env.SSH_CONNECTION = "192.0.2.10 55555 127.0.0.1 22";
+    const { state } = makeState();
+
+    const runtime = await maybeStartUiSession(state, {
+      serverName: "demo",
+      toolName: "app",
+      toolArgs: {},
+      uiResourceUri: "ui://app",
+    });
+
+    expect(runtime).toMatchObject({ viewer: "browser", windowOpen: true });
+    expect(state.openBrowser).toHaveBeenCalledWith(expect.stringContaining("http://localhost:"));
+    expect(glimpseMocks.isGlimpseAvailable).not.toHaveBeenCalled();
+    expect(glimpseMocks.openGlimpseWindow).not.toHaveBeenCalled();
+    expect(state.ui.notify).toHaveBeenCalledWith(expect.stringContaining("This looks like a remote session"), "info");
+    expect(state.ui.notify).toHaveBeenCalledWith(expect.stringContaining("SSH: run `ssh -L"), "info");
+
+    runtime?.close("test-cleanup");
+  });
+
+  it("uses local-window wording when a remote login is active but Glimpse opened", async () => {
+    vi.mocked(execFile).mockImplementation((_command: any, _options: any, callback: any) => callback(null, "nico ttys001 2026-08-02 08:00 (192.0.2.10)\n") as any);
+    const { state } = makeState();
+    glimpseMocks.openGlimpseWindow.mockResolvedValueOnce({ close: vi.fn() });
+
+    const runtime = await maybeStartUiSession(state, {
+      serverName: "demo",
+      toolName: "app",
+      toolArgs: {},
+      uiResourceUri: "ui://app",
+    });
+
+    expect(runtime).toMatchObject({ viewer: "glimpse", windowOpen: true });
+    expect(state.ui.notify).toHaveBeenCalledWith(expect.stringContaining("MCP UI opened on this host"), "info");
+    expect(state.ui.notify).toHaveBeenCalledWith(expect.stringContaining("If you're controlling this session remotely"), "info");
+
+    runtime?.close("test-cleanup");
+  });
+});
+
+describe("MCP UI context submissions", () => {
+  it("triggers an agent turn when the UI updates model context", async () => {
+    process.env.MCP_UI_VIEWER = "none";
+    const { state } = makeState();
+
+    const runtime = await maybeStartUiSession(state, {
+      serverName: "demo",
+      toolName: "app",
+      toolArgs: {},
+      uiResourceUri: "ui://app",
+    });
+    if (!runtime) throw new Error("expected UI runtime");
+
+    await fetch(`${runtime.url.replace(/\/?\?.*$/, "")}/proxy/ui/context`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: state.uiServer.sessionToken, params: { content: [{ type: "text", text: "Use this selection" }] } }),
+    });
+
+    expect(state.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customType: "mcp-ui-context",
+        content: [{ type: "text", text: expect.stringContaining("Use this selection") }],
+        display: "UI Context submitted",
+      }),
+      { triggerTurn: true },
+    );
+
+    runtime.close("test-cleanup");
+  });
 });
 
 describe("MCP_UI_VIEWER=none", () => {

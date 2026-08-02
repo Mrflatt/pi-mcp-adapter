@@ -63,8 +63,8 @@ export function buildHostHtmlTemplate(input: HostHtmlTemplateInput): string {
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; height: 100%; font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
-    body { display: flex; flex-direction: column; min-height: 100vh; }
-    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    body { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: calc(10px + env(safe-area-inset-top, 0px)) calc(14px + env(safe-area-inset-right, 0px)) 10px calc(14px + env(safe-area-inset-left, 0px)); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .title { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
     .server { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap; }
     .tool { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -75,13 +75,24 @@ export function buildHostHtmlTemplate(input: HostHtmlTemplateInput): string {
     button.primary { border-color: color-mix(in srgb, var(--good) 40%, var(--border) 60%); color: var(--good); }
     button.danger { border-color: color-mix(in srgb, var(--bad) 40%, var(--border) 60%); color: var(--bad); }
     button:hover { background: color-mix(in srgb, var(--surface) 75%, var(--accent) 25%); }
-    main { flex: 1; min-height: 0; padding: 10px; display: flex; }
+    main { flex: 1; min-height: 0; padding: 10px; padding-inline: calc(10px + env(safe-area-inset-left, 0px)) calc(10px + env(safe-area-inset-right, 0px)); padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); display: flex; }
     iframe { width: 100%; height: 100%; border: 1px solid var(--border); border-radius: 10px; background: white; }
-    .overlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--bg) 90%, black 10%); display: none; align-items: center; justify-content: center; z-index: 2; }
+    .overlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--bg) 90%, black 10%); display: none; align-items: center; justify-content: center; z-index: 2; padding: 16px; }
     .overlay.visible { display: flex; }
     .panel { width: min(680px, calc(100vw - 40px)); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
     .panel h2 { margin: 0 0 8px; font-size: 16px; }
     .panel p { margin: 0; color: var(--muted); line-height: 1.4; font-size: 14px; white-space: pre-wrap; }
+    @media (max-width: 640px) {
+      header { align-items: stretch; flex-direction: column; gap: 8px; }
+      .title { flex-wrap: wrap; row-gap: 4px; }
+      .server { flex-basis: 100%; }
+      .controls { width: 100%; }
+      .status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+      button { min-height: 44px; padding: 10px 14px; }
+      main { padding: 6px; padding-inline: calc(6px + env(safe-area-inset-left, 0px)) calc(6px + env(safe-area-inset-right, 0px)); padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px)); }
+      iframe { border-radius: 6px; }
+      .panel { width: 100%; }
+    }
   </style>
 </head>
 <body>
@@ -106,6 +117,12 @@ export function buildHostHtmlTemplate(input: HostHtmlTemplateInput): string {
       <p id="error-message"></p>
     </div>
   </div>
+  <div class="overlay" id="completion-overlay">
+    <div class="panel">
+      <h2>Done</h2>
+      <p>MCP UI session finished. You can close this page and return to Pi.</p>
+    </div>
+  </div>
   <script type="module">
     import { AppBridge, PostMessageTransport } from ${moduleUrl};
 
@@ -125,6 +142,7 @@ export function buildHostHtmlTemplate(input: HostHtmlTemplateInput): string {
     const doneBtn = document.getElementById("done-btn");
     const cancelBtn = document.getElementById("cancel-btn");
     const errorOverlay = document.getElementById("error-overlay");
+    const completionOverlay = document.getElementById("completion-overlay");
     const errorMessage = document.getElementById("error-message");
 
     document.getElementById("server-name").textContent = SERVER_NAME;
@@ -140,6 +158,26 @@ export function buildHostHtmlTemplate(input: HostHtmlTemplateInput): string {
       errorOverlay.classList.add("visible");
       setStatus("Error", true);
     };
+
+    let completionPending = false;
+    const showCompletion = () => {
+      completionOverlay.classList.add("visible");
+      setStatus("Complete");
+    };
+    const closeOrShowDone = () => {
+      completionPending = true;
+      window.close();
+      setTimeout(() => {
+        if (!document.hidden) {
+          showCompletion();
+        }
+      }, 1000);
+    };
+    document.addEventListener("visibilitychange", () => {
+      if (completionPending && !document.hidden) {
+        showCompletion();
+      }
+    });
 
     const post = async (endpoint, params) => {
       const response = await fetch(endpoint, {
@@ -315,7 +353,7 @@ export function buildHostHtmlTemplate(input: HostHtmlTemplateInput): string {
     eventSource.addEventListener("session-complete", async () => {
       await bridge.teardownResource({}).catch(() => {});
       eventSource.close();
-      window.close();
+      closeOrShowDone();
     });
     eventSource.onerror = () => {
       setStatus("Connection lost", true);
@@ -334,7 +372,7 @@ export function buildHostHtmlTemplate(input: HostHtmlTemplateInput): string {
       } catch {}
       clearInterval(heartbeat);
       eventSource.close();
-      window.close();
+      closeOrShowDone();
     };
 
     doneBtn.addEventListener("click", () => complete("done"));

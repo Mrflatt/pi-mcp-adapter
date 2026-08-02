@@ -173,10 +173,11 @@ describe("UiServer", () => {
   });
 
   describe("startUiServer", () => {
-    it("starts server on random port", async () => {
+    it("starts server on a Moshi-discoverable low port by default", async () => {
       handle = await startUiServer(createServerOptions());
 
-      expect(handle.port).toBeGreaterThan(0);
+      expect(handle.port).toBeGreaterThanOrEqual(8377);
+      expect(handle.port).toBeLessThanOrEqual(8396);
       expect(handle.url).toContain(`http://localhost:${handle.port}`);
       expect(handle.sessionToken).toBeTruthy();
     });
@@ -235,13 +236,47 @@ describe("UiServer", () => {
       expect(res.body).toEqual({ ok: false, error: "Invalid session" });
     });
 
-    it("rejects missing session token", async () => {
+    it("serves a tokenless loopback landing shell for Moshi preview", async () => {
       handle = await startUiServer(createServerOptions());
       const url = `http://localhost:${handle.port}/`;
 
       const res = await request(url);
 
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toContain("text/html");
+      expect(res.body).toContain("location.replace");
+      expect(res.body).toContain(encodeURIComponent(handle.sessionToken));
+    });
+
+    it("answers HEAD discovery probes without a session token", async () => {
+      handle = await startUiServer(createServerOptions());
+      const url = `http://localhost:${handle.port}/`;
+
+      const res = await request(url, { method: "HEAD" });
+
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toContain("text/html");
+      expect(res.body).toBe("");
+    });
+
+    it("rejects non-loopback Host headers before serving tokenless landing", async () => {
+      handle = await startUiServer(createServerOptions());
+      const url = `http://localhost:${handle.port}/`;
+
+      const res = await request(url, { headers: { Host: "attacker.example" } });
+
       expect(res.status).toBe(403);
+      expect(res.body).toBe("Invalid host");
+    });
+
+    it("accepts bracketed IPv6 loopback Host headers", async () => {
+      handle = await startUiServer(createServerOptions());
+      const url = `http://localhost:${handle.port}/`;
+
+      const res = await request(url, { headers: { Host: `[::1]:${handle.port}` } });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toContain("location.replace");
     });
   });
 
@@ -1050,7 +1085,28 @@ describe("UiServer", () => {
   });
 
   describe("POST /proxy/ui/context", () => {
-    it("forwards context to callback", async () => {
+    it("stores and forwards context updates", async () => {
+      const onContextUpdate = vi.fn();
+      handle = await startUiServer(createServerOptions({ onContextUpdate }));
+
+      const res = await request(`http://localhost:${handle.port}/proxy/ui/context`, {
+        method: "POST",
+        body: {
+          token: handle.sessionToken,
+          params: { content: [{ type: "text", text: "some context data" }] },
+        },
+      });
+
+      expect(res.status).toBe(200);
+      expect(onContextUpdate).toHaveBeenCalledWith({ content: [{ type: "text", text: "some context data" }] });
+      expect(handle.getSessionMessages().contexts).toEqual([{
+        payload: { content: [{ type: "text", text: "some context data" }] },
+        summary: '{"content":[{"type":"text","text":"some context data"}]}',
+        truncated: false,
+      }]);
+    });
+
+    it("rejects malformed context updates", async () => {
       const onContextUpdate = vi.fn();
       handle = await startUiServer(createServerOptions({ onContextUpdate }));
 
@@ -1062,8 +1118,27 @@ describe("UiServer", () => {
         },
       });
 
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ ok: false, error: "Invalid update-model-context params" });
+      expect(onContextUpdate).not.toHaveBeenCalled();
+      expect(handle.getSessionMessages().contexts).toEqual([]);
+    });
+
+    it("bounds oversized context updates", async () => {
+      handle = await startUiServer(createServerOptions());
+
+      const res = await request(`http://localhost:${handle.port}/proxy/ui/context`, {
+        method: "POST",
+        body: {
+          token: handle.sessionToken,
+          params: { content: [{ type: "text", text: "x".repeat(12_100) }] },
+        },
+      });
+
       expect(res.status).toBe(200);
-      expect(onContextUpdate).toHaveBeenCalledWith({ content: "some context data" });
+      expect(handle.getSessionMessages().contexts[0]).toMatchObject({ truncated: true });
+      expect(handle.getSessionMessages().contexts[0].summary.length).toBeLessThanOrEqual(12_000);
+      expect(handle.getSessionMessages().contexts[0].payload).toBeUndefined();
     });
   });
 

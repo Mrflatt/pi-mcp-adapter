@@ -171,6 +171,7 @@ export function executeUiMessages(state: McpExtensionState): ProxyToolResult {
 
   const allPrompts: string[] = [];
   const allIntents = sessions.flatMap((session) => session.messages.intents);
+  const allContexts = sessions.flatMap((session) => session.messages.contexts);
   const parsedHandoffs: Array<{ intent: string; params: Record<string, unknown>; raw: string }> = [];
 
   for (const session of sessions) {
@@ -211,6 +212,14 @@ export function executeUiMessages(state: McpExtensionState): ProxyToolResult {
       }
     }
 
+    const contexts = session.messages.contexts;
+    if (contexts.length > 0) {
+      output.push("\n### Context updates:");
+      for (const context of contexts) {
+        output.push(`- ${context.summary}${context.truncated ? " (truncated)" : ""}`);
+      }
+    }
+
     if (session.messages.notifications.length > 0) {
       output.push("\n### Notifications:");
       for (const notification of session.messages.notifications) {
@@ -228,6 +237,7 @@ export function executeUiMessages(state: McpExtensionState): ProxyToolResult {
       sessions: count,
       prompts: allPrompts,
       intents: [...allIntents, ...parsedHandoffs.map(({ intent, params }) => ({ intent, params }))],
+      contexts: allContexts,
       handoffs: parsedHandoffs,
       cleared: true,
     },
