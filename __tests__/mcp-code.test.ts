@@ -122,6 +122,27 @@ describe("runMcpScript", () => {
     expect(result.details).toMatchObject({ calls: [{ path: "fixture_echo", ok: true }] });
   });
 
+  it("records approval-gate outcomes in the call trace", async () => {
+    const gatedState = {
+      ...state,
+      config: { settings: { approveTools: ["echo"] }, mcpServers: { fixture: definition } },
+      approvedToolCalls: new Map(),
+    } as unknown as McpExtensionState;
+
+    const result = await runMcpScript(
+      gatedState,
+      'return await tools.fixture_echo({ value: "blocked" });',
+    );
+
+    expect(JSON.parse(textBlocks(result).at(-1)!)).toMatchObject({
+      ok: false,
+      error: { code: "approval_required" },
+    });
+    expect(result.details).toMatchObject({
+      calls: [{ path: "fixture_echo", ok: false, error: "approval_required" }],
+    });
+  });
+
   it("calls a prefixed MCP tool through the flat tools proxy", async () => {
     const result = await runMcpScript(
       state,
