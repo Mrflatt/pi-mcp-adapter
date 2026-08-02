@@ -98,7 +98,7 @@ export function buildHostHtmlTemplate(input: HostHtmlTemplateInput): string {
     </div>
   </header>
   <main>
-    <iframe id="mcp-app" referrerpolicy="no-referrer"></iframe>
+    <iframe id="mcp-app" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-downloads" referrerpolicy="no-referrer"></iframe>
   </main>
   <div class="overlay" id="error-overlay">
     <div class="panel">
@@ -353,13 +353,11 @@ export function buildHostHtmlTemplate(input: HostHtmlTemplateInput): string {
 </html>`;
 }
 
-export function buildCspMetaContent(csp: UiResourceCsp | undefined): string | undefined {
-  if (!csp) return undefined;
-
-  const resourceDomains = sanitizeCspDomains(csp.resourceDomains);
-  const connectDomains = sanitizeCspDomains(csp.connectDomains);
-  const frameDomains = sanitizeCspDomains(csp.frameDomains);
-  const baseUriDomains = sanitizeCspDomains(csp.baseUriDomains);
+export function buildCspMetaContent(csp: UiResourceCsp | undefined): string {
+  const resourceDomains = sanitizeCspDomains(csp?.resourceDomains);
+  const connectDomains = sanitizeCspDomains(csp?.connectDomains);
+  const frameDomains = sanitizeCspDomains(csp?.frameDomains);
+  const baseUriDomains = sanitizeCspDomains(csp?.baseUriDomains);
 
   return [
     "default-src 'none'",
@@ -368,11 +366,13 @@ export function buildCspMetaContent(csp: UiResourceCsp | undefined): string | un
     toDirective("font-src", ["'self'"], resourceDomains),
     toDirective("img-src", ["'self'", "data:"], resourceDomains),
     toDirective("media-src", ["'self'", "data:"], resourceDomains),
-    toDirective("connect-src", ["'self'"], connectDomains),
+    connectDomains.length > 0
+      ? `connect-src ${connectDomains.join(" ")}`
+      : "connect-src 'none'",
     frameDomains.length > 0
       ? `frame-src ${frameDomains.join(" ")}`
       : "frame-src 'none'",
-    toDirective("worker-src", ["'self'", "blob:"], resourceDomains),
+    "worker-src 'none'",
     "object-src 'none'",
     baseUriDomains.length > 0
       ? `base-uri ${baseUriDomains.join(" ")}`

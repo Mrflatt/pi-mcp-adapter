@@ -16,6 +16,7 @@ import type { McpServerManager } from "./server-manager.ts";
 import type { McpExtensionState } from "./state.ts";
 import { SessionRecoveryAuthRequiredError, withSessionRecovery, type SessionRecoveryDeps } from "./session-recovery.ts";
 import { ensureToolCallApproved, isToolCallApprovalRequired } from "./tool-approval.ts";
+import { extractUiToolVisibility, isUiToolCallableByApp } from "./ui-tool-visibility.ts";
 import {
   extractUiPromptText,
   getVisualizationStreamEnvelope,
@@ -308,7 +309,7 @@ export async function startUiServer(options: UiServerOptions): Promise<UiServerH
         res.writeHead(200, {
           "Content-Type": "text/html; charset=utf-8",
           "Cache-Control": "no-store",
-          ...(cspContent ? { "Content-Security-Policy": cspContent } : {}),
+          "Content-Security-Policy": cspContent,
         });
         res.end(options.resource.html);
         return;
@@ -359,6 +360,18 @@ export async function startUiServer(options: UiServerOptions): Promise<UiServerH
           return;
         }
 
+        const toolDefinitions = Array.isArray(connection.tools) ? connection.tools : [];
+        const toolDefinition = toolDefinitions.find((tool) => tool.name === callParams.name);
+        if (!toolDefinition) {
+          sendJson(res, 403, { ok: false, error: `MCP tool "${callParams.name}" is not callable by apps` });
+          return;
+        }
+        const uiVisibility = extractUiToolVisibility(toolDefinition._meta);
+        if (!isUiToolCallableByApp(uiVisibility)) {
+          sendJson(res, 403, { ok: false, error: `MCP tool "${callParams.name}" is not callable by apps` });
+          return;
+        }
+
         const callArgs = {
           name: callParams.name,
           arguments:
@@ -369,7 +382,9 @@ export async function startUiServer(options: UiServerOptions): Promise<UiServerH
         const toolMeta = {
           name: callParams.name,
           originalName: callParams.name,
-          description: "",
+          description: toolDefinition?.description ?? "",
+          inputSchema: toolDefinition?.inputSchema,
+          uiVisibility,
         };
         const approval = options.state
           ? await ensureToolCallApproved(

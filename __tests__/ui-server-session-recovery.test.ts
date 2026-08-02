@@ -76,11 +76,13 @@ describe("UiServer /proxy/tools/call session recovery", () => {
       status: "connected",
       transport: { sessionId: "session-1" },
       client: { callTool: vi.fn().mockRejectedValueOnce(new StreamableHTTPError(404, "Session not found")) },
+      tools: [{ name: "some_tool" }],
     } as unknown as ServerConnection;
     const fresh = {
       status: "connected",
       transport: { sessionId: "session-2" },
       client: { callTool: vi.fn().mockResolvedValue({ content: [{ type: "text", text: "tool result" }] }) },
+      tools: [{ name: "some_tool" }],
     } as unknown as ServerConnection;
 
     const manager = {
@@ -125,11 +127,13 @@ describe("UiServer /proxy/tools/call session recovery", () => {
       status: "connected",
       transport: { sessionId: "session-1" },
       client: { callTool: vi.fn().mockRejectedValueOnce(new StreamableHTTPError(404, "Session not found")) },
+      tools: [{ name: "some_tool" }],
     } as unknown as ServerConnection;
     const needsAuth = {
       status: "needs-auth",
       transport: { sessionId: "session-2" },
       client: { callTool: vi.fn() },
+      tools: [{ name: "some_tool" }],
     } as unknown as ServerConnection;
 
     const manager = {
@@ -170,16 +174,19 @@ describe("UiServer /proxy/tools/call session recovery", () => {
       status: "connected",
       transport: { sessionId: "session-1" },
       client: { callTool: vi.fn().mockRejectedValueOnce(new StreamableHTTPError(404, "Session not found")) },
+      tools: [{ name: "some_tool" }],
     } as unknown as ServerConnection;
     const needsAuth = {
       status: "needs-auth",
       transport: { sessionId: "session-2" },
       client: { callTool: vi.fn() },
+      tools: [{ name: "some_tool" }],
     } as unknown as ServerConnection;
     const fresh = {
       status: "connected",
       transport: { sessionId: "session-3" },
       client: { callTool: vi.fn().mockResolvedValue({ content: [{ type: "text", text: "after auth" }] }) },
+      tools: [{ name: "some_tool" }],
     } as unknown as ServerConnection;
 
     const manager = {
@@ -221,6 +228,7 @@ describe("UiServer /proxy/tools/call session recovery", () => {
       status: "connected",
       transport: { sessionId: "session-1" },
       client: { callTool: vi.fn().mockRejectedValue(new StreamableHTTPError(404, "Session not found")) },
+      tools: [{ name: "some_tool" }],
     } as unknown as ServerConnection;
 
     const manager = {

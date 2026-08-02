@@ -52,6 +52,8 @@ describe("buildHostHtmlTemplate", () => {
       const html = buildHostHtmlTemplate(createMinimalInput());
 
       expect(html).toContain('<iframe id="mcp-app"');
+      expect(html).toContain('sandbox="allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-downloads"');
+      expect(html).not.toContain("allow-same-origin");
       expect(html).toContain('referrerpolicy="no-referrer"');
     });
 
@@ -173,9 +175,9 @@ describe("buildHostHtmlTemplate", () => {
         "font-src 'self' https://esm.sh",
         "img-src 'self' data: https://esm.sh",
         "media-src 'self' data: https://esm.sh",
-        "connect-src 'self' https://api.example.com",
+        "connect-src https://api.example.com",
         "frame-src 'none'",
-        "worker-src 'self' blob: https://esm.sh",
+        "worker-src 'none'",
         "object-src 'none'",
         "base-uri 'self'",
       ].join("; "));
@@ -204,7 +206,7 @@ describe("buildHostHtmlTemplate", () => {
       });
 
       expect(csp).toContain("https://safe.example.com");
-      expect(csp?.match(/https:\/\/safe\.example\.com/g)).toHaveLength(6);
+      expect(csp?.match(/https:\/\/safe\.example\.com/g)).toHaveLength(5);
       expect(csp).not.toContain("evil.example.com");
       expect(csp).not.toContain("nul-evil.example.com");
       expect(csp).not.toContain("del-evil.example.com");
@@ -227,7 +229,7 @@ describe("buildHostHtmlTemplate", () => {
         resourceDomains: ["https://safe.example.com", ...rejectedSources],
       });
 
-      expect(csp?.match(/https:\/\/safe\.example\.com/g)).toHaveLength(6);
+      expect(csp?.match(/https:\/\/safe\.example\.com/g)).toHaveLength(5);
       for (const source of rejectedSources) {
         expect(csp).not.toContain(source);
       }
@@ -248,9 +250,9 @@ describe("buildHostHtmlTemplate", () => {
         "font-src 'self'",
         "img-src 'self' data:",
         "media-src 'self' data:",
-        "connect-src 'self'",
+        "connect-src 'none'",
         "frame-src 'none'",
-        "worker-src 'self' blob:",
+        "worker-src 'none'",
         "object-src 'none'",
         "base-uri 'self'",
       ].join("; "));
@@ -270,10 +272,22 @@ describe("buildHostHtmlTemplate", () => {
       expect(csp?.match(/https:\/\/base\.example\.com/g)).toHaveLength(1);
     });
 
-    it("returns undefined when the app declares no CSP metadata", async () => {
+    it("returns a restrictive default when the app declares no CSP metadata", async () => {
       const { buildCspMetaContent } = await import("../host-html-template.ts");
 
-      expect(buildCspMetaContent(undefined)).toBeUndefined();
+      expect(buildCspMetaContent(undefined)).toBe([
+        "default-src 'none'",
+        "script-src 'self' 'unsafe-inline'",
+        "style-src 'self' 'unsafe-inline'",
+        "font-src 'self'",
+        "img-src 'self' data:",
+        "media-src 'self' data:",
+        "connect-src 'none'",
+        "frame-src 'none'",
+        "worker-src 'none'",
+        "object-src 'none'",
+        "base-uri 'self'",
+      ].join("; "));
     });
 
 
