@@ -55,7 +55,7 @@ describe("runMcpScript", () => {
   it("searches the script-visible tool catalog with pagination and server filtering", async () => {
     const result = await runMcpScript(
       state,
-      'return { first: tools.search({ query: "fixture", limit: 1 }), second: tools.search({ query: "fixture", limit: 1, offset: 1, server: "fixture" }), empty: tools.search({ query: "" }) };',
+      'return { first: await tools.search({ query: "fixture", limit: 1 }), second: await tools.search({ query: "fixture", limit: 1, offset: 1, server: "fixture" }), empty: await tools.search({ query: "" }) };',
     );
 
     expect(JSON.parse(textBlocks(result).at(-1)!)).toEqual({
@@ -78,7 +78,7 @@ describe("runMcpScript", () => {
   it("describes exact script-visible paths and suggests corrections without throwing", async () => {
     const result = await runMcpScript(
       state,
-      'return { found: tools.describe({ path: "fixture_echo" }), missing: tools.describe({ path: "fixture_ech" }) };',
+      'return { found: await tools.describe({ path: "fixture_echo" }), missing: await tools.describe({ path: "fixture_ech" }) };',
     );
 
     expect(JSON.parse(textBlocks(result).at(-1)!)).toEqual({
@@ -187,7 +187,7 @@ describe("runMcpScript", () => {
     const result = await runMcpScript(
       state,
       'await tools.fixture_echo({ value: "done" }); await tools.fixture_hang({});',
-      100,
+      300,
     );
 
     expect(result.details).toMatchObject({
@@ -199,12 +199,26 @@ describe("runMcpScript", () => {
     });
   });
 
+  it("terminates synchronous runaway code after an awaited tool call", async () => {
+    const result = await runMcpScript(
+      state,
+      'await tools.fixture_echo({ value: "x" }); while (true) {}',
+      300,
+    );
+
+    expect(result.details).toMatchObject({
+      error: "timeout",
+      calls: [{ path: "fixture_echo", ok: true }],
+    });
+  });
+
   it("bounds synchronous runaway code and preserves partial emits", async () => {
-    const result = await runMcpScript(state, 'emit("before timeout"); while (true) {}', 20);
+    // Margin covers worker spawn latency on slow CI runners; the emit must land before the deadline.
+    const result = await runMcpScript(state, 'emit("before timeout"); while (true) {}', 250);
 
     expect(textBlocks(result)[0]).toBe("before timeout");
-    expect(result.details).toMatchObject({ error: "timeout", timeoutMs: 20 });
-    expect(textBlocks(result).at(-1)).toBe("mcp_script timed out after 20ms");
+    expect(result.details).toMatchObject({ error: "timeout", timeoutMs: 250 });
+    expect(textBlocks(result).at(-1)).toBe("mcp_script timed out after 250ms");
   });
 
   it("orders emitted and captured console blocks before the return value", async () => {

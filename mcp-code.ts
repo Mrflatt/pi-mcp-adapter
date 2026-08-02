@@ -1,6 +1,5 @@
 import type { ToolInfo } from "@earendil-works/pi-coding-agent";
-import { formatWithOptions } from "node:util";
-import vm from "node:vm";
+import { Worker } from "node:worker_threads";
 import { guardMcpOutput, guardedMcpDetails, resolveMcpOutputGuardOptions } from "./mcp-output-guard.ts";
 import { executeCall } from "./proxy-modes.ts";
 import { combineAbortSignals } from "./runtime-owner.ts";
@@ -11,11 +10,6 @@ import { renderTsShape } from "./ts-shape.ts";
 import type { ContentBlock } from "./types.ts";
 
 export const DEFAULT_MCP_SCRIPT_TIMEOUT_MS = 30_000;
-const TOOLS_ENUMERATION_ERROR = "tools is not enumerable — use tools.search({ query })";
-// Promise adoption and serialization probe these names on the proxy; treating them as
-// tool calls would make `return tools` hang forever on a thenable and record phantom
-// trace entries. Real flat tool paths remain reachable via tools.call(path, args).
-const RESERVED_TOOL_PROPS = new Set(["then", "catch", "finally", "toJSON", "toString", "valueOf"]);
 
 class McpScriptTimeoutError extends Error {
   constructor(timeoutMs: number) {
@@ -23,6 +17,18 @@ class McpScriptTimeoutError extends Error {
     this.name = "McpScriptTimeoutError";
   }
 }
+
+type SearchInput = { query?: unknown; server?: unknown; limit?: unknown; offset?: unknown };
+type DescribeInput = { path?: unknown };
+type WorkerMessage =
+  | { type: "emit"; block: unknown }
+  | { type: "call"; id: number; path: string; args?: unknown }
+  | { type: "search"; id: number; input?: unknown }
+  | { type: "describe"; id: number; input?: unknown }
+  | { type: "done"; returnBlock?: unknown }
+  | { type: "error"; message: string };
+
+type WorkerResultMessage = { type: "result"; id: number; envelope: unknown };
 
 function formatValue(value: unknown): string {
   if (typeof value === "string") return value;
@@ -62,11 +68,27 @@ function abortReasonError(reason: unknown): Error {
   return reason instanceof Error ? reason : new Error(String(reason ?? "MCP request aborted"));
 }
 
-function isVmTimeout(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false;
-  const value = error as { code?: unknown; message?: unknown };
-  return value.code === "ERR_SCRIPT_EXECUTION_TIMEOUT"
-    || (typeof value.message === "string" && value.message.includes("Script execution timed out"));
+function parseWorkerMessage(value: unknown): WorkerMessage | null {
+  if (typeof value !== "object" || value === null) return null;
+  const message = value as Record<string, unknown>;
+  if (message.type === "emit" && "block" in message) return { type: "emit", block: message.block };
+  if (message.type === "call" && typeof message.id === "number" && typeof message.path === "string") {
+    return "args" in message
+      ? { type: "call", id: message.id, path: message.path, args: message.args }
+      : { type: "call", id: message.id, path: message.path };
+  }
+  if ((message.type === "search" || message.type === "describe") && typeof message.id === "number") {
+    return "input" in message
+      ? { type: message.type, id: message.id, input: message.input }
+      : { type: message.type, id: message.id };
+  }
+  if (message.type === "done") {
+    return "returnBlock" in message ? { type: "done", returnBlock: message.returnBlock } : { type: "done" };
+  }
+  if (message.type === "error" && typeof message.message === "string") {
+    return { type: "error", message: message.message };
+  }
+  return null;
 }
 
 export async function runMcpScript(
@@ -84,24 +106,11 @@ export async function runMcpScript(
   const timeoutController = new AbortController();
   const callSignal = combineAbortSignals(externalSignal, timeoutController.signal);
 
-  const emit = (value: unknown): void => {
-    output.push(toContentBlock(value));
-  };
-
-  const capturedConsole = Object.freeze({
-    log: (...args: unknown[]) => emit(`[console.log] ${formatWithOptions({ colors: false, depth: 4 }, ...args)}`),
-    info: (...args: unknown[]) => emit(`[console.info] ${formatWithOptions({ colors: false, depth: 4 }, ...args)}`),
-    warn: (...args: unknown[]) => emit(`[console.warn] ${formatWithOptions({ colors: false, depth: 4 }, ...args)}`),
-    error: (...args: unknown[]) => emit(`[console.error] ${formatWithOptions({ colors: false, depth: 4 }, ...args)}`),
-    debug: (...args: unknown[]) => emit(`[console.debug] ${formatWithOptions({ colors: false, depth: 4 }, ...args)}`),
-  });
-
   type ScriptCall = { path: string; ok: true } | { path: string; ok: false; error: string };
   const calls: ScriptCall[] = [];
+  let callsSnapshot: ScriptCall[] | undefined;
   const callTool = async (path: string, args?: Record<string, unknown>) => {
     // Record before dispatch so calls still in flight at timeout/abort appear in the trace.
-    // Settled outcomes replace the entry by index; the final shallow snapshot keeps whichever
-    // state each call had when the script finished.
     const index = calls.push({ path, ok: false, error: "incomplete" }) - 1;
     const result = await executeCall(state, path, args, undefined, getPiTools, callSignal);
     const details = result.details;
@@ -122,77 +131,52 @@ export async function runMcpScript(
     };
   };
 
-  const tools = new Proxy(Object.create(null) as Record<string, unknown>, {
-    get(_target, property) {
-      if (property === "search") {
-        return (input?: { query?: unknown; server?: unknown; limit?: unknown; offset?: unknown }) => {
-          if (typeof input?.query !== "string" || input.query.trim() === "") {
-            return { items: [], total: 0, hasMore: false, nextOffset: null };
-          }
-          const server = typeof input.server === "string" ? input.server : undefined;
-          const limit = typeof input.limit === "number" ? input.limit : 12;
-          const offset = typeof input.offset === "number" ? input.offset : 0;
-          const page = paginate(rankToolMatches(state, input.query, server), offset, limit);
-          return {
-            ...page,
-            items: page.items.map(({ server: matchServer, tool, score }) => ({
-              path: tool.name,
-              name: tool.originalName,
-              server: matchServer,
-              ...(tool.description ? { description: tool.description } : {}),
-              score,
-            })),
-          };
-        };
-      }
-      if (property === "call") {
-        return async (path: unknown, args?: Record<string, unknown>) => {
-          if (typeof path !== "string" || path.trim() === "") {
-            return {
-              ok: false as const,
-              error: {
-                code: "invalid_tool_path",
-                message: "tools.call(path, args) requires a non-empty tool path.",
-              },
-            };
-          }
-          return callTool(path, args);
-        };
-      }
-      if (property === "describe") {
-        return (input?: { path?: unknown }) => {
-          const path = typeof input?.path === "string" ? input.path : "";
-          for (const [server, metadata] of state.toolMetadata) {
-            const tool = findToolByName(metadata, path);
-            if (!tool) continue;
-            const inputTypeScript = tool.inputSchema ? renderTsShape(tool.inputSchema) : null;
-            return {
-              path: tool.name,
-              name: tool.originalName,
-              server,
-              ...(tool.description ? { description: tool.description } : {}),
-              ...(inputTypeScript ? { inputTypeScript } : {}),
-            };
-          }
-          const suggestions = path ? rankSuggestions(state, path, 5) : [];
-          return {
-            path,
-            error: {
-              code: "tool_not_found",
-              message: `Tool not found: ${path}`,
-              suggestions,
-            },
-          };
-        };
-      }
-      if (typeof property !== "string" || RESERVED_TOOL_PROPS.has(property)) return undefined;
-      return (args?: Record<string, unknown>) => callTool(property, args);
-    },
-    ownKeys() {
-      throw new Error(TOOLS_ENUMERATION_ERROR);
-    },
-  });
+  const searchTools = (input?: SearchInput) => {
+    if (typeof input?.query !== "string" || input.query.trim() === "") {
+      return { items: [], total: 0, hasMore: false, nextOffset: null };
+    }
+    const server = typeof input.server === "string" ? input.server : undefined;
+    const limit = typeof input.limit === "number" ? input.limit : 12;
+    const offset = typeof input.offset === "number" ? input.offset : 0;
+    const page = paginate(rankToolMatches(state, input.query, server), offset, limit);
+    return {
+      ...page,
+      items: page.items.map(({ server: matchServer, tool, score }) => ({
+        path: tool.name,
+        name: tool.originalName,
+        server: matchServer,
+        ...(tool.description ? { description: tool.description } : {}),
+        score,
+      })),
+    };
+  };
 
+  const describeTool = (input?: DescribeInput) => {
+    const path = typeof input?.path === "string" ? input.path : "";
+    for (const [server, metadata] of state.toolMetadata) {
+      const tool = findToolByName(metadata, path);
+      if (!tool) continue;
+      const inputTypeScript = tool.inputSchema ? renderTsShape(tool.inputSchema) : null;
+      return {
+        path: tool.name,
+        name: tool.originalName,
+        server,
+        ...(tool.description ? { description: tool.description } : {}),
+        ...(inputTypeScript ? { inputTypeScript } : {}),
+      };
+    }
+    const suggestions = path ? rankSuggestions(state, path, 5) : [];
+    return {
+      path,
+      error: {
+        code: "tool_not_found",
+        message: `Tool not found: ${path}`,
+        suggestions,
+      },
+    };
+  };
+
+  let worker: Worker | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let removeAbortListener = () => {};
   let errorCode: "timeout" | "aborted" | "script_error" | undefined;
@@ -203,38 +187,76 @@ export async function runMcpScript(
       throw abortReasonError(externalSignal.reason);
     }
 
-    const context = vm.createContext(Object.assign(Object.create(null), {
-      tools,
-      emit,
-      console: capturedConsole,
-    }), {
-      codeGeneration: { strings: false, wasm: false },
-      name: "mcp_script",
+    worker = new Worker(new URL("./mcp-script-worker.mjs", import.meta.url), {
+      workerData: { code },
+      env: {},
     });
-    const script = new vm.Script(`(async () => {\n${code}\n})()`, { filename: "mcp_script.js" });
-    const execution = Promise.resolve(script.runInContext(context, { timeout: resolvedTimeoutMs }));
+    const activeWorker = worker;
+    const execution = new Promise<void>((resolve, reject) => {
+      let completed = false;
+      activeWorker.on("message", (value: unknown) => {
+        const message = parseWorkerMessage(value);
+        if (!message || completed) return;
+        if (message.type === "emit") {
+          output.push(toContentBlock(message.block));
+          return;
+        }
+        if (message.type === "done") {
+          completed = true;
+          if ("returnBlock" in message) output.push(toContentBlock(message.returnBlock));
+          resolve();
+          return;
+        }
+        if (message.type === "error") {
+          completed = true;
+          reject(new Error(message.message));
+          return;
+        }
+
+        void (async () => {
+          let envelope: unknown;
+          if (message.type === "call") {
+            envelope = await callTool(message.path, message.args as Record<string, unknown> | undefined);
+          } else if (message.type === "search") {
+            envelope = searchTools(message.input as SearchInput | undefined);
+          } else {
+            envelope = describeTool(message.input as DescribeInput | undefined);
+          }
+          const response: WorkerResultMessage = { type: "result", id: message.id, envelope };
+          activeWorker.postMessage(response);
+        })().catch(reject);
+      });
+      activeWorker.once("error", reject);
+      activeWorker.once("exit", (code) => {
+        if (!completed && code !== 0) reject(new Error(`mcp_script worker exited with code ${code}`));
+      });
+    });
     const timeoutError = new McpScriptTimeoutError(resolvedTimeoutMs);
     const timeout = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
+        callsSnapshot = [...calls];
         timeoutController.abort(timeoutError);
+        void activeWorker.terminate();
         reject(timeoutError);
       }, resolvedTimeoutMs);
     });
     const aborted = externalSignal
       ? new Promise<never>((_resolve, reject) => {
-          const onAbort = () => reject(abortReasonError(externalSignal.reason));
+          const onAbort = () => {
+            callsSnapshot = [...calls];
+            void activeWorker.terminate();
+            reject(abortReasonError(externalSignal.reason));
+          };
           externalSignal.addEventListener("abort", onAbort, { once: true });
           removeAbortListener = () => externalSignal.removeEventListener("abort", onAbort);
         })
       : new Promise<never>(() => {});
 
-    const returnValue = await Promise.race([execution, timeout, aborted]);
-    if (returnValue !== undefined) output.push(toContentBlock(returnValue));
+    await Promise.race([execution, timeout, aborted]);
   } catch (error) {
-    if (error instanceof McpScriptTimeoutError || isVmTimeout(error)) {
+    if (error instanceof McpScriptTimeoutError) {
       errorCode = "timeout";
       errorMessage = `mcp_script timed out after ${resolvedTimeoutMs}ms`;
-      timeoutController.abort(error);
     } else if (externalSignal?.aborted) {
       errorCode = "aborted";
       errorMessage = error instanceof Error ? error.message : String(error);
@@ -246,9 +268,10 @@ export async function runMcpScript(
   } finally {
     clearTimeout(timer);
     removeAbortListener();
+    await worker?.terminate();
   }
 
-  // Snapshot: a timed-out script may still be running and emitting into `output`.
+  // Snapshot before the asynchronous output guard; the terminated worker can no longer emit.
   const guarded = await guardMcpOutput(
     output.length > 0 ? [...output] : [{ type: "text", text: "(no output)" }],
     resolveMcpOutputGuardOptions(state.config.settings),
@@ -259,10 +282,8 @@ export async function runMcpScript(
       mode: "script",
       ...(errorCode ? { error: errorCode, message: errorMessage } : {}),
       timeoutMs: resolvedTimeoutMs,
-      // Snapshot: a timed-out script may still be running and appending calls.
-      // "incomplete" means the call had not settled by snapshot time; calls that
-      // settle between the timeout firing and this point show their final state.
-      ...(calls.length > 0 ? { calls: [...calls] } : {}),
+      // Timeout/abort snapshots preserve the deadline state before parent-side calls settle.
+      ...((callsSnapshot ?? calls).length > 0 ? { calls: [...(callsSnapshot ?? calls)] } : {}),
       ...guardedMcpDetails(guarded),
     },
   };

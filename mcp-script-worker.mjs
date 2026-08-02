@@ -1,0 +1,115 @@
+import { parentPort, workerData } from "node:worker_threads";
+import { formatWithOptions } from "node:util";
+import vm from "node:vm";
+
+const TOOLS_ENUMERATION_ERROR = "tools is not enumerable — use tools.search({ query })";
+const RESERVED_TOOL_PROPS = new Set(["then", "catch", "finally", "toJSON", "toString", "valueOf"]);
+
+function formatValue(value) {
+  if (typeof value === "string") return value;
+  if (value === undefined) return "undefined";
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    try {
+      return String(value);
+    } catch {
+      return "[unserializable value]";
+    }
+  }
+}
+
+function toContentBlock(value) {
+  if (typeof value === "object" && value !== null) {
+    if (value.type === "text" && typeof value.text === "string") {
+      return { type: "text", text: value.text };
+    }
+    if (value.type === "image" && typeof value.data === "string" && typeof value.mimeType === "string") {
+      return { type: "image", data: value.data, mimeType: value.mimeType };
+    }
+  }
+  return { type: "text", text: formatValue(value) };
+}
+
+let nextRequestId = 0;
+const pending = new Map();
+
+parentPort.on("message", (message) => {
+  if (message?.type !== "result" || typeof message.id !== "number") return;
+  const resolve = pending.get(message.id);
+  if (!resolve) return;
+  pending.delete(message.id);
+  resolve(message.envelope);
+});
+
+function request(type, payload) {
+  return new Promise((resolve) => {
+    const id = ++nextRequestId;
+    pending.set(id, resolve);
+    parentPort.postMessage({ type, id, ...payload });
+  });
+}
+
+const tools = new Proxy(Object.create(null), {
+  get(_target, property) {
+    if (property === "search") {
+      return async (input) => request("search", { input });
+    }
+    if (property === "call") {
+      return async (path, args) => {
+        // Invalid paths never reach dispatch and therefore never appear in the call trace.
+        if (typeof path !== "string" || path.trim() === "") {
+          return {
+            ok: false,
+            error: {
+              code: "invalid_tool_path",
+              message: "tools.call(path, args) requires a non-empty tool path.",
+            },
+          };
+        }
+        return request("call", { path, args });
+      };
+    }
+    if (property === "describe") {
+      return async (input) => request("describe", { input });
+    }
+    if (typeof property !== "string" || RESERVED_TOOL_PROPS.has(property)) return undefined;
+    return (args) => request("call", { path: property, args });
+  },
+  ownKeys() {
+    throw new Error(TOOLS_ENUMERATION_ERROR);
+  },
+});
+
+const emit = (value) => {
+  parentPort.postMessage({ type: "emit", block: toContentBlock(value) });
+};
+
+const capturedConsole = Object.freeze({
+  log: (...args) => emit(`[console.log] ${formatWithOptions({ colors: false, depth: 4 }, ...args)}`),
+  info: (...args) => emit(`[console.info] ${formatWithOptions({ colors: false, depth: 4 }, ...args)}`),
+  warn: (...args) => emit(`[console.warn] ${formatWithOptions({ colors: false, depth: 4 }, ...args)}`),
+  error: (...args) => emit(`[console.error] ${formatWithOptions({ colors: false, depth: 4 }, ...args)}`),
+  debug: (...args) => emit(`[console.debug] ${formatWithOptions({ colors: false, depth: 4 }, ...args)}`),
+});
+
+try {
+  const context = vm.createContext(Object.assign(Object.create(null), {
+    tools,
+    emit,
+    console: capturedConsole,
+  }), {
+    codeGeneration: { strings: false, wasm: false },
+    name: "mcp_script",
+  });
+  const script = new vm.Script(`(async () => {\n${workerData.code}\n})()`, { filename: "mcp_script.js" });
+  const returnValue = await Promise.resolve(script.runInContext(context));
+  parentPort.postMessage(returnValue === undefined
+    ? { type: "done" }
+    : { type: "done", returnBlock: toContentBlock(returnValue) });
+} catch (error) {
+  parentPort.postMessage({
+    type: "error",
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
