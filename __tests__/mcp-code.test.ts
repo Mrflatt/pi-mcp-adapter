@@ -90,8 +90,6 @@ describe("runMcpScript", () => {
       },
       missing: {
         path: "fixture_ech",
-        name: "fixture_ech",
-        server: null,
         error: {
           code: "tool_not_found",
           message: "Tool not found: fixture_ech",
@@ -176,6 +174,13 @@ describe("runMcpScript", () => {
       calls: [{ path: "fixture_fail", ok: false, error: "tool_error" }],
     });
     expect(result.details).not.toHaveProperty("error");
+  });
+
+  it("does not treat promise/serialization probes as tool calls", async () => {
+    const result = await runMcpScript(state, "return tools;");
+
+    expect(result.details).not.toHaveProperty("error");
+    expect(result.details).not.toHaveProperty("calls");
   });
 
   it("keeps in-flight calls in the trace when the script times out", async () => {

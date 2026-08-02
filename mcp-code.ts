@@ -12,6 +12,10 @@ import type { ContentBlock } from "./types.ts";
 
 export const DEFAULT_MCP_SCRIPT_TIMEOUT_MS = 30_000;
 const TOOLS_ENUMERATION_ERROR = "tools is not enumerable — use tools.search({ query })";
+// Promise adoption and serialization probe these names on the proxy; treating them as
+// tool calls would make `return tools` hang forever on a thenable and record phantom
+// trace entries. Real flat tool paths remain reachable via tools.call(path, args).
+const RESERVED_TOOL_PROPS = new Set(["then", "catch", "finally", "toJSON", "toString", "valueOf"]);
 
 class McpScriptTimeoutError extends Error {
   constructor(timeoutMs: number) {
@@ -26,7 +30,11 @@ function formatValue(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2);
   } catch {
-    return String(value);
+    try {
+      return String(value);
+    } catch {
+      return "[unserializable value]";
+    }
   }
 }
 
@@ -48,6 +56,10 @@ function textFromContent(content: ContentBlock[]): string {
     .filter((block) => block.type === "text")
     .map((block) => block.text)
     .join("\n");
+}
+
+function abortReasonError(reason: unknown): Error {
+  return reason instanceof Error ? reason : new Error(String(reason ?? "MCP request aborted"));
 }
 
 function isVmTimeout(error: unknown): boolean {
@@ -165,8 +177,6 @@ export async function runMcpScript(
           const suggestions = path ? rankSuggestions(state, path, 5) : [];
           return {
             path,
-            name: path,
-            server: null,
             error: {
               code: "tool_not_found",
               message: `Tool not found: ${path}`,
@@ -175,7 +185,7 @@ export async function runMcpScript(
           };
         };
       }
-      if (typeof property !== "string") return undefined;
+      if (typeof property !== "string" || RESERVED_TOOL_PROPS.has(property)) return undefined;
       return (args?: Record<string, unknown>) => callTool(property, args);
     },
     ownKeys() {
@@ -190,9 +200,7 @@ export async function runMcpScript(
 
   try {
     if (externalSignal?.aborted) {
-      throw externalSignal.reason instanceof Error
-        ? externalSignal.reason
-        : new Error(String(externalSignal.reason ?? "MCP request aborted"));
+      throw abortReasonError(externalSignal.reason);
     }
 
     const context = vm.createContext(Object.assign(Object.create(null), {
@@ -214,9 +222,7 @@ export async function runMcpScript(
     });
     const aborted = externalSignal
       ? new Promise<never>((_resolve, reject) => {
-          const onAbort = () => reject(externalSignal.reason instanceof Error
-            ? externalSignal.reason
-            : new Error(String(externalSignal.reason ?? "MCP request aborted")));
+          const onAbort = () => reject(abortReasonError(externalSignal.reason));
           externalSignal.addEventListener("abort", onAbort, { once: true });
           removeAbortListener = () => externalSignal.removeEventListener("abort", onAbort);
         })
