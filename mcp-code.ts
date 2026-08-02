@@ -7,13 +7,13 @@ import { combineAbortSignals } from "./runtime-owner.ts";
 import type { McpExtensionState } from "./state.ts";
 import type { ContentBlock } from "./types.ts";
 
-export const DEFAULT_MCP_CODE_TIMEOUT_MS = 30_000;
+export const DEFAULT_MCP_SCRIPT_TIMEOUT_MS = 30_000;
 const TOOLS_ENUMERATION_ERROR = "tools is not enumerable — use mcp({ search })";
 
-class McpCodeTimeoutError extends Error {
+class McpScriptTimeoutError extends Error {
   constructor(timeoutMs: number) {
-    super(`mcp_code timed out after ${timeoutMs}ms`);
-    this.name = "McpCodeTimeoutError";
+    super(`mcp_script timed out after ${timeoutMs}ms`);
+    this.name = "McpScriptTimeoutError";
   }
 }
 
@@ -54,16 +54,16 @@ function isVmTimeout(error: unknown): boolean {
     || (typeof value.message === "string" && value.message.includes("Script execution timed out"));
 }
 
-export async function runMcpCode(
+export async function runMcpScript(
   state: McpExtensionState,
   code: string,
-  timeoutMs = DEFAULT_MCP_CODE_TIMEOUT_MS,
+  timeoutMs = DEFAULT_MCP_SCRIPT_TIMEOUT_MS,
   getPiTools?: () => ToolInfo[],
   signal?: AbortSignal,
 ) {
   const resolvedTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0
     ? Math.floor(timeoutMs)
-    : DEFAULT_MCP_CODE_TIMEOUT_MS;
+    : DEFAULT_MCP_SCRIPT_TIMEOUT_MS;
   const output: ContentBlock[] = [];
   const externalSignal = combineAbortSignals(state.owner?.signal, signal);
   const timeoutController = new AbortController();
@@ -125,11 +125,11 @@ export async function runMcpCode(
       console: capturedConsole,
     }), {
       codeGeneration: { strings: false, wasm: false },
-      name: "mcp_code",
+      name: "mcp_script",
     });
-    const script = new vm.Script(`(async () => {\n${code}\n})()`, { filename: "mcp_code.js" });
+    const script = new vm.Script(`(async () => {\n${code}\n})()`, { filename: "mcp_script.js" });
     const execution = Promise.resolve(script.runInContext(context, { timeout: resolvedTimeoutMs }));
-    const timeoutError = new McpCodeTimeoutError(resolvedTimeoutMs);
+    const timeoutError = new McpScriptTimeoutError(resolvedTimeoutMs);
     const timeout = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
         timeoutController.abort(timeoutError);
@@ -149,9 +149,9 @@ export async function runMcpCode(
     const returnValue = await Promise.race([execution, timeout, aborted]);
     if (returnValue !== undefined) output.push(toContentBlock(returnValue));
   } catch (error) {
-    if (error instanceof McpCodeTimeoutError || isVmTimeout(error)) {
+    if (error instanceof McpScriptTimeoutError || isVmTimeout(error)) {
       errorCode = "timeout";
-      errorMessage = `mcp_code timed out after ${resolvedTimeoutMs}ms`;
+      errorMessage = `mcp_script timed out after ${resolvedTimeoutMs}ms`;
       timeoutController.abort(error);
     } else if (externalSignal?.aborted) {
       errorCode = "aborted";
@@ -174,7 +174,7 @@ export async function runMcpCode(
   return {
     content: guarded.content,
     details: {
-      mode: "code",
+      mode: "script",
       ...(errorCode ? { error: errorCode, message: errorMessage } : {}),
       timeoutMs: resolvedTimeoutMs,
       ...guardedMcpDetails(guarded),
