@@ -72,6 +72,7 @@ describe("buildHostHtmlTemplate", () => {
       expect(html).toContain("@media (max-width: 640px)");
       expect(html).toContain('id="completion-overlay"');
       expect(html).toContain("closeOrShowDone");
+      expect(html).toContain("visibilitychange");
     });
   });
 

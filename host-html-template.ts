@@ -159,15 +159,25 @@ export function buildHostHtmlTemplate(input: HostHtmlTemplateInput): string {
       setStatus("Error", true);
     };
 
+    let completionPending = false;
+    const showCompletion = () => {
+      completionOverlay.classList.add("visible");
+      setStatus("Complete");
+    };
     const closeOrShowDone = () => {
+      completionPending = true;
       window.close();
       setTimeout(() => {
         if (!document.hidden) {
-          completionOverlay.classList.add("visible");
-          setStatus("Complete");
+          showCompletion();
         }
       }, 1000);
     };
+    document.addEventListener("visibilitychange", () => {
+      if (completionPending && !document.hidden) {
+        showCompletion();
+      }
+    });
 
     const post = async (endpoint, params) => {
       const response = await fetch(endpoint, {
