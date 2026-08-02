@@ -260,6 +260,8 @@ export async function runMcpScript(
       ...(errorCode ? { error: errorCode, message: errorMessage } : {}),
       timeoutMs: resolvedTimeoutMs,
       // Snapshot: a timed-out script may still be running and appending calls.
+      // "incomplete" means the call had not settled by snapshot time; calls that
+      // settle between the timeout firing and this point show their final state.
       ...(calls.length > 0 ? { calls: [...calls] } : {}),
       ...guardedMcpDetails(guarded),
     },
