@@ -4,16 +4,23 @@ import vm from "node:vm";
 import { guardMcpOutput, guardedMcpDetails, resolveMcpOutputGuardOptions } from "./mcp-output-guard.ts";
 import { executeCall } from "./proxy-modes.ts";
 import { combineAbortSignals } from "./runtime-owner.ts";
+import { paginate, rankSuggestions, rankToolMatches } from "./search-ranking.ts";
 import type { McpExtensionState } from "./state.ts";
+import { findToolByName } from "./tool-metadata.ts";
+import { renderTsShape } from "./ts-shape.ts";
 import type { ContentBlock } from "./types.ts";
 
-export const DEFAULT_MCP_CODE_TIMEOUT_MS = 30_000;
-const TOOLS_ENUMERATION_ERROR = "tools is not enumerable — use mcp({ search })";
+export const DEFAULT_MCP_SCRIPT_TIMEOUT_MS = 30_000;
+const TOOLS_ENUMERATION_ERROR = "tools is not enumerable — use tools.search({ query })";
+// Promise adoption and serialization probe these names on the proxy; treating them as
+// tool calls would make `return tools` hang forever on a thenable and record phantom
+// trace entries. Real flat tool paths remain reachable via tools.call(path, args).
+const RESERVED_TOOL_PROPS = new Set(["then", "catch", "finally", "toJSON", "toString", "valueOf"]);
 
-class McpCodeTimeoutError extends Error {
+class McpScriptTimeoutError extends Error {
   constructor(timeoutMs: number) {
-    super(`mcp_code timed out after ${timeoutMs}ms`);
-    this.name = "McpCodeTimeoutError";
+    super(`mcp_script timed out after ${timeoutMs}ms`);
+    this.name = "McpScriptTimeoutError";
   }
 }
 
@@ -23,7 +30,11 @@ function formatValue(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2);
   } catch {
-    return String(value);
+    try {
+      return String(value);
+    } catch {
+      return "[unserializable value]";
+    }
   }
 }
 
@@ -47,6 +58,10 @@ function textFromContent(content: ContentBlock[]): string {
     .join("\n");
 }
 
+function abortReasonError(reason: unknown): Error {
+  return reason instanceof Error ? reason : new Error(String(reason ?? "MCP request aborted"));
+}
+
 function isVmTimeout(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false;
   const value = error as { code?: unknown; message?: unknown };
@@ -54,16 +69,16 @@ function isVmTimeout(error: unknown): boolean {
     || (typeof value.message === "string" && value.message.includes("Script execution timed out"));
 }
 
-export async function runMcpCode(
+export async function runMcpScript(
   state: McpExtensionState,
   code: string,
-  timeoutMs = DEFAULT_MCP_CODE_TIMEOUT_MS,
+  timeoutMs = DEFAULT_MCP_SCRIPT_TIMEOUT_MS,
   getPiTools?: () => ToolInfo[],
   signal?: AbortSignal,
 ) {
   const resolvedTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0
     ? Math.floor(timeoutMs)
-    : DEFAULT_MCP_CODE_TIMEOUT_MS;
+    : DEFAULT_MCP_SCRIPT_TIMEOUT_MS;
   const output: ContentBlock[] = [];
   const externalSignal = combineAbortSignals(state.owner?.signal, signal);
   const timeoutController = new AbortController();
@@ -81,26 +96,97 @@ export async function runMcpCode(
     debug: (...args: unknown[]) => emit(`[console.debug] ${formatWithOptions({ colors: false, depth: 4 }, ...args)}`),
   });
 
+  type ScriptCall = { path: string; ok: true } | { path: string; ok: false; error: string };
+  const calls: ScriptCall[] = [];
+  const callTool = async (path: string, args?: Record<string, unknown>) => {
+    // Record before dispatch so calls still in flight at timeout/abort appear in the trace.
+    // Settled outcomes replace the entry by index; the final shallow snapshot keeps whichever
+    // state each call had when the script finished.
+    const index = calls.push({ path, ok: false, error: "incomplete" }) - 1;
+    const result = await executeCall(state, path, args, undefined, getPiTools, callSignal);
+    const details = result.details;
+    if (details.error !== undefined) {
+      const message = typeof details.message === "string"
+        ? details.message
+        : textFromContent(result.content);
+      calls[index] = { path, ok: false, error: String(details.error) };
+      return {
+        ok: false as const,
+        error: { code: String(details.error), message },
+      };
+    }
+    calls[index] = { path, ok: true };
+    return {
+      ok: true as const,
+      data: details.mcpResult !== undefined ? details.mcpResult : textFromContent(result.content),
+    };
+  };
+
   const tools = new Proxy(Object.create(null) as Record<string, unknown>, {
     get(_target, property) {
-      if (typeof property !== "string") return undefined;
-      return async (args?: Record<string, unknown>) => {
-        const result = await executeCall(state, property, args, undefined, getPiTools, callSignal);
-        const details = result.details;
-        if (details.error !== undefined) {
-          const message = typeof details.message === "string"
-            ? details.message
-            : textFromContent(result.content);
+      if (property === "search") {
+        return (input?: { query?: unknown; server?: unknown; limit?: unknown; offset?: unknown }) => {
+          if (typeof input?.query !== "string" || input.query.trim() === "") {
+            return { items: [], total: 0, hasMore: false, nextOffset: null };
+          }
+          const server = typeof input.server === "string" ? input.server : undefined;
+          const limit = typeof input.limit === "number" ? input.limit : 12;
+          const offset = typeof input.offset === "number" ? input.offset : 0;
+          const page = paginate(rankToolMatches(state, input.query, server), offset, limit);
           return {
-            ok: false as const,
-            error: { code: String(details.error), message },
+            ...page,
+            items: page.items.map(({ server: matchServer, tool, score }) => ({
+              path: tool.name,
+              name: tool.originalName,
+              server: matchServer,
+              ...(tool.description ? { description: tool.description } : {}),
+              score,
+            })),
           };
-        }
-        return {
-          ok: true as const,
-          data: details.mcpResult !== undefined ? details.mcpResult : textFromContent(result.content),
         };
-      };
+      }
+      if (property === "call") {
+        return async (path: unknown, args?: Record<string, unknown>) => {
+          if (typeof path !== "string" || path.trim() === "") {
+            return {
+              ok: false as const,
+              error: {
+                code: "invalid_tool_path",
+                message: "tools.call(path, args) requires a non-empty tool path.",
+              },
+            };
+          }
+          return callTool(path, args);
+        };
+      }
+      if (property === "describe") {
+        return (input?: { path?: unknown }) => {
+          const path = typeof input?.path === "string" ? input.path : "";
+          for (const [server, metadata] of state.toolMetadata) {
+            const tool = findToolByName(metadata, path);
+            if (!tool) continue;
+            const inputTypeScript = tool.inputSchema ? renderTsShape(tool.inputSchema) : null;
+            return {
+              path: tool.name,
+              name: tool.originalName,
+              server,
+              ...(tool.description ? { description: tool.description } : {}),
+              ...(inputTypeScript ? { inputTypeScript } : {}),
+            };
+          }
+          const suggestions = path ? rankSuggestions(state, path, 5) : [];
+          return {
+            path,
+            error: {
+              code: "tool_not_found",
+              message: `Tool not found: ${path}`,
+              suggestions,
+            },
+          };
+        };
+      }
+      if (typeof property !== "string" || RESERVED_TOOL_PROPS.has(property)) return undefined;
+      return (args?: Record<string, unknown>) => callTool(property, args);
     },
     ownKeys() {
       throw new Error(TOOLS_ENUMERATION_ERROR);
@@ -114,9 +200,7 @@ export async function runMcpCode(
 
   try {
     if (externalSignal?.aborted) {
-      throw externalSignal.reason instanceof Error
-        ? externalSignal.reason
-        : new Error(String(externalSignal.reason ?? "MCP request aborted"));
+      throw abortReasonError(externalSignal.reason);
     }
 
     const context = vm.createContext(Object.assign(Object.create(null), {
@@ -125,11 +209,11 @@ export async function runMcpCode(
       console: capturedConsole,
     }), {
       codeGeneration: { strings: false, wasm: false },
-      name: "mcp_code",
+      name: "mcp_script",
     });
-    const script = new vm.Script(`(async () => {\n${code}\n})()`, { filename: "mcp_code.js" });
+    const script = new vm.Script(`(async () => {\n${code}\n})()`, { filename: "mcp_script.js" });
     const execution = Promise.resolve(script.runInContext(context, { timeout: resolvedTimeoutMs }));
-    const timeoutError = new McpCodeTimeoutError(resolvedTimeoutMs);
+    const timeoutError = new McpScriptTimeoutError(resolvedTimeoutMs);
     const timeout = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
         timeoutController.abort(timeoutError);
@@ -138,9 +222,7 @@ export async function runMcpCode(
     });
     const aborted = externalSignal
       ? new Promise<never>((_resolve, reject) => {
-          const onAbort = () => reject(externalSignal.reason instanceof Error
-            ? externalSignal.reason
-            : new Error(String(externalSignal.reason ?? "MCP request aborted")));
+          const onAbort = () => reject(abortReasonError(externalSignal.reason));
           externalSignal.addEventListener("abort", onAbort, { once: true });
           removeAbortListener = () => externalSignal.removeEventListener("abort", onAbort);
         })
@@ -149,9 +231,9 @@ export async function runMcpCode(
     const returnValue = await Promise.race([execution, timeout, aborted]);
     if (returnValue !== undefined) output.push(toContentBlock(returnValue));
   } catch (error) {
-    if (error instanceof McpCodeTimeoutError || isVmTimeout(error)) {
+    if (error instanceof McpScriptTimeoutError || isVmTimeout(error)) {
       errorCode = "timeout";
-      errorMessage = `mcp_code timed out after ${resolvedTimeoutMs}ms`;
+      errorMessage = `mcp_script timed out after ${resolvedTimeoutMs}ms`;
       timeoutController.abort(error);
     } else if (externalSignal?.aborted) {
       errorCode = "aborted";
@@ -174,9 +256,13 @@ export async function runMcpCode(
   return {
     content: guarded.content,
     details: {
-      mode: "code",
+      mode: "script",
       ...(errorCode ? { error: errorCode, message: errorMessage } : {}),
       timeoutMs: resolvedTimeoutMs,
+      // Snapshot: a timed-out script may still be running and appending calls.
+      // "incomplete" means the call had not settled by snapshot time; calls that
+      // settle between the timeout firing and this point show their final state.
+      ...(calls.length > 0 ? { calls: [...calls] } : {}),
       ...guardedMcpDetails(guarded),
     },
   };

@@ -22,12 +22,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       description: "Return an MCP tool error",
       inputSchema: { type: "object", properties: {} },
     },
+    {
+      name: "hang",
+      description: "Never resolves",
+      inputSchema: { type: "object", properties: {} },
+    },
   ],
 }));
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (request.params.name === "fail") {
     return { isError: true, content: [{ type: "text", text: "fixture failure" }] };
+  }
+  if (request.params.name === "hang") {
+    return new Promise(() => {});
   }
   return {
     content: [{ type: "text", text: String(request.params.arguments?.value ?? "") }],
