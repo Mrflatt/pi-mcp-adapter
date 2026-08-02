@@ -79,6 +79,7 @@
     "mcp-setup-panel.ts",
     "types.ts",
     "ui-stream-types.ts",
+    "ui-tool-visibility.ts",
     "config.ts",
     "server-manager.ts",
     "unix-socket-transport.ts",

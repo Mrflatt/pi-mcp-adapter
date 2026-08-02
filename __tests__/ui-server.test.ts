@@ -279,7 +279,7 @@ describe("UiServer", () => {
       expect(cspHeader).toContain("default-src 'none'");
       expect(cspHeader).toContain("script-src 'self' 'unsafe-inline' https://esm.sh");
       expect(cspHeader).toContain("style-src 'self' 'unsafe-inline' https://esm.sh");
-      expect(cspHeader).toContain("connect-src 'self' https://api.excalidraw.com");
+      expect(cspHeader).toContain("connect-src https://api.excalidraw.com");
       expect(res.body).toBe(appHtml);
     });
 
@@ -327,13 +327,14 @@ describe("UiServer", () => {
       expect(res.body).toBe(appHtml);
     });
 
-    it("omits the CSP response header when metadata is undefined", async () => {
+    it("emits restrictive default CSP when metadata is undefined", async () => {
       handle = await startUiServer(createServerOptions());
       const url = `http://localhost:${handle.port}/ui-app?session=${handle.sessionToken}`;
 
       const res = await request(url);
 
-      expect(res.headers["content-security-policy"]).toBeUndefined();
+      expect(res.headers["content-security-policy"]).toContain("default-src 'none'");
+      expect(res.headers["content-security-policy"]).toContain("connect-src 'none'");
       expect(res.body).toBe("<h1>Test App</h1>");
     });
   });
@@ -629,6 +630,30 @@ describe("UiServer", () => {
 
       expect(res.status).toBe(503);
       expect((res.body as { error: string }).error).toContain("not connected");
+    });
+
+    it("rejects app calls to tools that omit app visibility", async () => {
+      const mockClient = { callTool: vi.fn() };
+      const manager = createMockManager({
+        getConnection: vi.fn().mockReturnValue({
+          status: "connected",
+          client: mockClient,
+          tools: [{ name: "model_only", _meta: { ui: { visibility: ["model"] } } }],
+        }),
+      });
+      handle = await startUiServer(createServerOptions({ manager }));
+
+      const res = await request(`http://localhost:${handle.port}/proxy/tools/call`, {
+        method: "POST",
+        body: {
+          token: handle.sessionToken,
+          params: { name: "model_only", arguments: {} },
+        },
+      });
+
+      expect(res.status).toBe(403);
+      expect(res.body).toEqual({ ok: false, error: 'MCP tool "model_only" is not callable by apps' });
+      expect(mockClient.callTool).not.toHaveBeenCalled();
     });
 
     it("returns 400 for invalid params", async () => {

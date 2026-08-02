@@ -2,6 +2,7 @@
 import type { Transport as McpTransport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { TextContent, ImageContent } from "@earendil-works/pi-ai";
 import type { UiStreamMode } from "./ui-stream-types.ts";
+import type { UiToolVisibility } from "./ui-tool-visibility.ts";
 
 export type Transport = McpTransport;
 
@@ -474,6 +475,7 @@ export interface ToolMetadata {
   description: string;
   resourceUri?: string;   // For resource tools: the URI to read
   uiResourceUri?: string; // For app-enabled tools: the UI resource URI
+  uiVisibility?: UiToolVisibility[];
   inputSchema?: unknown;  // JSON Schema for parameters (stored for describe/errors)
   uiStreamMode?: UiStreamMode;
 }
@@ -514,6 +516,7 @@ export interface CachedTool {
   description?: string;
   inputSchema?: unknown;
   uiResourceUri?: string;
+  uiVisibility?: UiToolVisibility[];
   uiStreamMode?: "eager" | "stream-first";
 }
 

@@ -4,6 +4,7 @@ import type { ToolMetadata, McpTool, McpResource, ServerEntry, ToolPrefix } from
 import { formatToolName, isToolAllowed, resolveToolPrefix } from "./types.ts";
 import { resourceNameToToolName } from "./resource-tools.ts";
 import { extractToolUiStreamMode } from "./utils.ts";
+import { extractUiToolVisibility, isUiToolVisibleToModel } from "./ui-tool-visibility.ts";
 
 export function buildToolMetadata(
   tools: McpTool[],
@@ -30,6 +31,11 @@ export function buildToolMetadata(
     if (seenNames.has(name)) {
       continue;
     }
+
+    const uiVisibility = extractUiToolVisibility(tool._meta);
+    if (!isUiToolVisibleToModel(uiVisibility)) {
+      continue;
+    }
     seenNames.add(name);
 
     let uiResourceUri: string | undefined;
@@ -44,6 +50,7 @@ export function buildToolMetadata(
       description: tool.description ?? "",
       inputSchema: tool.inputSchema,
       uiResourceUri,
+      uiVisibility,
       uiStreamMode: extractToolUiStreamMode(tool._meta),
     });
   }

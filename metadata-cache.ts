@@ -28,6 +28,7 @@ import {
   resolveConfigPath,
   resolveServerUrl,
 } from "./utils.ts";
+import { extractUiToolVisibility, isUiToolVisibleToModel } from "./ui-tool-visibility.ts";
 
 const CACHE_VERSION = 1;
 const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -183,6 +184,9 @@ export function reconstructToolMetadata(
 
   for (const tool of entry.tools ?? []) {
     if (!tool?.name) continue;
+    if (!isUiToolVisibleToModel(tool.uiVisibility)) {
+      continue;
+    }
     if (!isToolAllowed(tool.name, serverName, effectivePrefix, definition.includeTools, definition.excludeTools)) {
       continue;
     }
@@ -199,6 +203,7 @@ export function reconstructToolMetadata(
       description: tool.description ?? "",
       inputSchema: tool.inputSchema,
       uiResourceUri: tool.uiResourceUri,
+      uiVisibility: tool.uiVisibility,
       uiStreamMode: tool.uiStreamMode,
     });
   }
@@ -237,6 +242,7 @@ export function serializeTools(tools: McpTool[]): CachedTool[] {
       description: t.description,
       inputSchema: t.inputSchema,
       uiResourceUri: tryGetToolUiResourceUri(t),
+      uiVisibility: extractUiToolVisibility(t._meta),
       uiStreamMode: extractToolUiStreamMode(t._meta),
     }));
 }
