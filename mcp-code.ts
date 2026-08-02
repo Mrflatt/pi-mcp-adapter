@@ -84,6 +84,24 @@ export async function runMcpScript(
     debug: (...args: unknown[]) => emit(`[console.debug] ${formatWithOptions({ colors: false, depth: 4 }, ...args)}`),
   });
 
+  const callTool = async (path: string, args?: Record<string, unknown>) => {
+    const result = await executeCall(state, path, args, undefined, getPiTools, callSignal);
+    const details = result.details;
+    if (details.error !== undefined) {
+      const message = typeof details.message === "string"
+        ? details.message
+        : textFromContent(result.content);
+      return {
+        ok: false as const,
+        error: { code: String(details.error), message },
+      };
+    }
+    return {
+      ok: true as const,
+      data: details.mcpResult !== undefined ? details.mcpResult : textFromContent(result.content),
+    };
+  };
+
   const tools = new Proxy(Object.create(null) as Record<string, unknown>, {
     get(_target, property) {
       if (property === "search") {
@@ -105,6 +123,20 @@ export async function runMcpScript(
               score,
             })),
           };
+        };
+      }
+      if (property === "call") {
+        return async (path: unknown, args?: Record<string, unknown>) => {
+          if (typeof path !== "string" || path.trim() === "") {
+            return {
+              ok: false as const,
+              error: {
+                code: "invalid_tool_path",
+                message: "tools.call(path, args) requires a non-empty tool path.",
+              },
+            };
+          }
+          return callTool(path, args);
         };
       }
       if (property === "describe") {
@@ -136,23 +168,7 @@ export async function runMcpScript(
         };
       }
       if (typeof property !== "string") return undefined;
-      return async (args?: Record<string, unknown>) => {
-        const result = await executeCall(state, property, args, undefined, getPiTools, callSignal);
-        const details = result.details;
-        if (details.error !== undefined) {
-          const message = typeof details.message === "string"
-            ? details.message
-            : textFromContent(result.content);
-          return {
-            ok: false as const,
-            error: { code: String(details.error), message },
-          };
-        }
-        return {
-          ok: true as const,
-          data: details.mcpResult !== undefined ? details.mcpResult : textFromContent(result.content),
-        };
-      };
+      return (args?: Record<string, unknown>) => callTool(property, args);
     },
     ownKeys() {
       throw new Error(TOOLS_ENUMERATION_ERROR);

@@ -340,7 +340,7 @@ Set `"outputGuard": false` — or the env kill switch `MCP_OUTPUT_GUARD=0` — t
 
 ### MCP Scripting
 
-Set `settings.scriptMode` to `true` to register `mcp_script({ code, timeoutMs? })`, a trusted agent-authored JavaScript layer for orchestrating MCP tools. Discover tools inside a script with `tools.search({ query, server?, limit?, offset? })`, inspect one with `tools.describe({ path })`, then call its returned exact `path` through the flat proxy (for example, `tools[path](args)`). It also provides `emit(value)` and a captured `console`. MCP calls return `{ ok: true, data }` or `{ ok: false, error: { code, message } }`, so a failed call does not stop the rest of the script. Emitted values and console output appear before the script's final return value, and the combined result uses the normal MCP output guard. The default timeout is 30 seconds.
+Set `settings.scriptMode` to `true` to register `mcp_script({ code, timeoutMs? })`, a trusted agent-authored JavaScript layer for orchestrating MCP tools. Discover tools inside a script with `tools.search({ query, server?, limit?, offset? })`, inspect one with `tools.describe({ path })`, then call its returned exact `path` with `tools.call(details.path, args)`. It also provides `emit(value)` and a captured `console`. MCP calls return `{ ok: true, data }` or `{ ok: false, error: { code, message } }`, so a failed call does not stop the rest of the script. Emitted values and console output appear before the script's final return value, and the combined result uses the normal MCP output guard. The default timeout is 30 seconds.
 
 ```js
 const first = await tools.github_search_issues({ query: "is:open label:bug" });

@@ -100,6 +100,27 @@ describe("runMcpScript", () => {
     });
   });
 
+  it("calls exact paths and returns an invalid-path envelope without throwing", async () => {
+    const result = await runMcpScript(
+      state,
+      'return { success: await tools.call("fixture_echo", { value: "canonical" }), invalid: await tools.call("", {}) };',
+    );
+
+    expect(JSON.parse(textBlocks(result).at(-1)!)).toMatchObject({
+      success: {
+        ok: true,
+        data: { structuredContent: { echoed: "canonical" } },
+      },
+      invalid: {
+        ok: false,
+        error: {
+          code: "invalid_tool_path",
+          message: "tools.call(path, args) requires a non-empty tool path.",
+        },
+      },
+    });
+  });
+
   it("calls a prefixed MCP tool through the flat tools proxy", async () => {
     const result = await runMcpScript(
       state,
