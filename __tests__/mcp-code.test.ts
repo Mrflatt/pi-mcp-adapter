@@ -39,6 +39,7 @@ describe("runMcpScript", () => {
         ["fixture", [
           { name: "fixture_echo", originalName: "echo", description: "Echo a value" },
           { name: "fixture_fail", originalName: "fail", description: "Return an MCP tool error" },
+          { name: "fixture_hang", originalName: "hang", description: "Never resolves" },
         ]],
       ]),
       manager,
@@ -60,15 +61,15 @@ describe("runMcpScript", () => {
     expect(JSON.parse(textBlocks(result).at(-1)!)).toEqual({
       first: {
         items: [{ path: "fixture_echo", name: "echo", server: "fixture", description: "Echo a value", score: expect.any(Number) }],
-        total: 2,
+        total: 3,
         hasMore: true,
         nextOffset: 1,
       },
       second: {
         items: [{ path: "fixture_fail", name: "fail", server: "fixture", description: "Return an MCP tool error", score: expect.any(Number) }],
-        total: 2,
-        hasMore: false,
-        nextOffset: null,
+        total: 3,
+        hasMore: true,
+        nextOffset: 2,
       },
       empty: { items: [], total: 0, hasMore: false, nextOffset: null },
     });
@@ -175,6 +176,22 @@ describe("runMcpScript", () => {
       calls: [{ path: "fixture_fail", ok: false, error: "tool_error" }],
     });
     expect(result.details).not.toHaveProperty("error");
+  });
+
+  it("keeps in-flight calls in the trace when the script times out", async () => {
+    const result = await runMcpScript(
+      state,
+      'await tools.fixture_echo({ value: "done" }); await tools.fixture_hang({});',
+      100,
+    );
+
+    expect(result.details).toMatchObject({
+      error: "timeout",
+      calls: [
+        { path: "fixture_echo", ok: true },
+        { path: "fixture_hang", ok: false, error: "incomplete" },
+      ],
+    });
   });
 
   it("bounds synchronous runaway code and preserves partial emits", async () => {

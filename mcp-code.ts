@@ -87,19 +87,23 @@ export async function runMcpScript(
   type ScriptCall = { path: string; ok: true } | { path: string; ok: false; error: string };
   const calls: ScriptCall[] = [];
   const callTool = async (path: string, args?: Record<string, unknown>) => {
+    // Record before dispatch so calls still in flight at timeout/abort appear in the trace.
+    // Settled outcomes replace the entry by index; the final shallow snapshot keeps whichever
+    // state each call had when the script finished.
+    const index = calls.push({ path, ok: false, error: "incomplete" }) - 1;
     const result = await executeCall(state, path, args, undefined, getPiTools, callSignal);
     const details = result.details;
     if (details.error !== undefined) {
       const message = typeof details.message === "string"
         ? details.message
         : textFromContent(result.content);
-      calls.push({ path, ok: false, error: String(details.error) });
+      calls[index] = { path, ok: false, error: String(details.error) };
       return {
         ok: false as const,
         error: { code: String(details.error), message },
       };
     }
-    calls.push({ path, ok: true });
+    calls[index] = { path, ok: true };
     return {
       ok: true as const,
       data: details.mcpResult !== undefined ? details.mcpResult : textFromContent(result.content),
