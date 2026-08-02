@@ -74,6 +74,32 @@ describe("runMcpScript", () => {
     });
   });
 
+  it("describes exact script-visible paths and suggests corrections without throwing", async () => {
+    const result = await runMcpScript(
+      state,
+      'return { found: tools.describe({ path: "fixture_echo" }), missing: tools.describe({ path: "fixture_ech" }) };',
+    );
+
+    expect(JSON.parse(textBlocks(result).at(-1)!)).toEqual({
+      found: {
+        path: "fixture_echo",
+        name: "echo",
+        server: "fixture",
+        description: "Echo a value",
+      },
+      missing: {
+        path: "fixture_ech",
+        name: "fixture_ech",
+        server: null,
+        error: {
+          code: "tool_not_found",
+          message: "Tool not found: fixture_ech",
+          suggestions: ["fixture_echo"],
+        },
+      },
+    });
+  });
+
   it("calls a prefixed MCP tool through the flat tools proxy", async () => {
     const result = await runMcpScript(
       state,

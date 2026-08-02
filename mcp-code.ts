@@ -4,8 +4,10 @@ import vm from "node:vm";
 import { guardMcpOutput, guardedMcpDetails, resolveMcpOutputGuardOptions } from "./mcp-output-guard.ts";
 import { executeCall } from "./proxy-modes.ts";
 import { combineAbortSignals } from "./runtime-owner.ts";
-import { paginate, rankToolMatches } from "./search-ranking.ts";
+import { paginate, rankSuggestions, rankToolMatches } from "./search-ranking.ts";
 import type { McpExtensionState } from "./state.ts";
+import { findToolByName } from "./tool-metadata.ts";
+import { renderTsShape } from "./ts-shape.ts";
 import type { ContentBlock } from "./types.ts";
 
 export const DEFAULT_MCP_SCRIPT_TIMEOUT_MS = 30_000;
@@ -102,6 +104,34 @@ export async function runMcpScript(
               ...(tool.description ? { description: tool.description } : {}),
               score,
             })),
+          };
+        };
+      }
+      if (property === "describe") {
+        return (input?: { path?: unknown }) => {
+          const path = typeof input?.path === "string" ? input.path : "";
+          for (const [server, metadata] of state.toolMetadata) {
+            const tool = findToolByName(metadata, path);
+            if (!tool) continue;
+            const inputTypeScript = tool.inputSchema ? renderTsShape(tool.inputSchema) : null;
+            return {
+              path: tool.name,
+              name: tool.originalName,
+              server,
+              ...(tool.description ? { description: tool.description } : {}),
+              ...(inputTypeScript ? { inputTypeScript } : {}),
+            };
+          }
+          const suggestions = path ? rankSuggestions(state, path, 5) : [];
+          return {
+            path,
+            name: path,
+            server: null,
+            error: {
+              code: "tool_not_found",
+              message: `Tool not found: ${path}`,
+              suggestions,
+            },
           };
         };
       }
