@@ -7,8 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.20.1] - 2026-08-04
+
 ### Fixed
-- Stopped server-side MCP app helper imports from requiring the legacy `@modelcontextprotocol/sdk` peer at extension load time, fixing peerless Pi installs of 2.20.0. Thanks @aryzing for issue #285 and @DevDominic and @Shinkicast for confirmations.
+- Stopped server-side MCP app helper imports from requiring the legacy `@modelcontextprotocol/sdk` peer at extension load time, fixing peerless Pi installs of 2.20.0. Thanks @aryzing for issue #285 and @DevDominic, @Shinkicast, and @marceloid for confirmations.
 
 ## [2.20.0] - 2026-08-04
 
