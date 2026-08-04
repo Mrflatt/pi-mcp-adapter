@@ -2,9 +2,11 @@ import type { UiHostContext, UiResourceContent, UiResourceCsp } from "./types.ts
 
 // Use locally bundled AppBridge to avoid CDN Zod bundling issues
 const DEFAULT_APP_BRIDGE_MODULE_URL = "/app-bridge.bundle.js";
+const APP_SANDBOX = "allow-scripts allow-forms allow-modals allow-popups allow-downloads";
 
 export interface HostHtmlTemplateInput {
   sessionToken: string;
+  uiResourceToken: string;
   serverName: string;
   toolName: string;
   toolArgs: Record<string, unknown>;
@@ -20,6 +22,7 @@ export function buildHostHtmlTemplate(input: HostHtmlTemplateInput): string {
   const hostContext = input.hostContext ?? {};
 
   const sessionToken = safeInlineJSON(input.sessionToken);
+  const uiResourceToken = safeInlineJSON(input.uiResourceToken);
   const toolArgs = safeInlineJSON(input.toolArgs);
   const serverName = safeInlineJSON(input.serverName);
   const toolName = safeInlineJSON(input.toolName);
@@ -109,7 +112,7 @@ export function buildHostHtmlTemplate(input: HostHtmlTemplateInput): string {
     </div>
   </header>
   <main>
-    <iframe id="mcp-app" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-downloads" referrerpolicy="no-referrer"></iframe>
+    <iframe id="mcp-app" sandbox="${APP_SANDBOX}" referrerpolicy="no-referrer"></iframe>
   </main>
   <div class="overlay" id="error-overlay">
     <div class="panel">
@@ -127,6 +130,7 @@ export function buildHostHtmlTemplate(input: HostHtmlTemplateInput): string {
     import { AppBridge, PostMessageTransport } from ${moduleUrl};
 
     const SESSION_TOKEN = ${sessionToken};
+    const UI_RESOURCE_TOKEN = ${uiResourceToken};
     const SERVER_NAME = ${serverName};
     const TOOL_NAME = ${toolName};
     const TOOL_ARGS = ${toolArgs};
@@ -236,6 +240,7 @@ export function buildHostHtmlTemplate(input: HostHtmlTemplateInput): string {
     // Also listen for raw postMessage events with custom types (notify, prompt, intent, etc.)
     // These bypass the AppBridge protocol but are used by some MCP UI implementations
     window.addEventListener("message", async (event) => {
+      if (event.source !== iframe.contentWindow) return;
       const data = event.data;
       if (!data || typeof data !== "object") return;
       
@@ -300,7 +305,7 @@ export function buildHostHtmlTemplate(input: HostHtmlTemplateInput): string {
 
     // Connect bridge BEFORE loading iframe to ensure we're listening when the app sends ui/initialize
     try {
-      const transport = new PostMessageTransport(iframe.contentWindow, null);
+      const transport = new PostMessageTransport(iframe.contentWindow, iframe.contentWindow);
       await bridge.connect(transport);
     } catch (error) {
       console.error("[host] Bridge connection failed:", error);
@@ -310,7 +315,7 @@ export function buildHostHtmlTemplate(input: HostHtmlTemplateInput): string {
     const iframeLoaded = new Promise((resolve) => {
       iframe.onload = resolve;
     });
-    iframe.src = "/ui-app?session=" + encodeURIComponent(SESSION_TOKEN);
+    iframe.src = "/ui-app?resource=" + encodeURIComponent(UI_RESOURCE_TOKEN);
     await iframeLoaded;
 
     const eventSource = new EventSource("/events?session=" + encodeURIComponent(SESSION_TOKEN));
@@ -399,6 +404,7 @@ export function buildCspMetaContent(csp: UiResourceCsp | undefined): string {
 
   return [
     "default-src 'none'",
+    `sandbox ${APP_SANDBOX}`,
     toDirective("script-src", ["'self'", "'unsafe-inline'"], resourceDomains),
     toDirective("style-src", ["'self'", "'unsafe-inline'"], resourceDomains),
     toDirective("font-src", ["'self'"], resourceDomains),

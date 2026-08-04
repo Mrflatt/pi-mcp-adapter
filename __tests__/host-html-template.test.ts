@@ -4,6 +4,7 @@ import { buildHostHtmlTemplate, type HostHtmlTemplateInput } from "../host-html-
 function createMinimalInput(overrides: Partial<HostHtmlTemplateInput> = {}): HostHtmlTemplateInput {
   return {
     sessionToken: "test-token-123",
+    uiResourceToken: "resource-token-456",
     serverName: "test-server",
     toolName: "test-tool",
     toolArgs: { arg1: "value1" },
@@ -52,9 +53,18 @@ describe("buildHostHtmlTemplate", () => {
       const html = buildHostHtmlTemplate(createMinimalInput());
 
       expect(html).toContain('<iframe id="mcp-app"');
-      expect(html).toContain('sandbox="allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-downloads"');
+      expect(html).toContain('sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads"');
+      expect(html).not.toContain("allow-popups-to-escape-sandbox");
       expect(html).not.toContain("allow-same-origin");
       expect(html).toContain('referrerpolicy="no-referrer"');
+    });
+
+    it("rejects nested-frame protocol and raw messages by binding to the sandboxed app frame", () => {
+      const html = buildHostHtmlTemplate(createMinimalInput());
+
+      expect(html).toContain("new PostMessageTransport(iframe.contentWindow, iframe.contentWindow)");
+      expect(html).toContain("if (event.source !== iframe.contentWindow) return;");
+      expect(html).not.toContain("new PostMessageTransport(iframe.contentWindow, null)");
     });
 
     it("includes control buttons", () => {
@@ -77,12 +87,18 @@ describe("buildHostHtmlTemplate", () => {
   });
 
   describe("data injection", () => {
-    it("injects session token", () => {
+    it("keeps the session token out of the sandboxed app URL", () => {
       const html = buildHostHtmlTemplate(
-        createMinimalInput({ sessionToken: "secret-token-xyz" })
+        createMinimalInput({
+          sessionToken: "secret-session-token",
+          uiResourceToken: "app-resource-token",
+        })
       );
 
-      expect(html).toContain('"secret-token-xyz"');
+      expect(html).toContain('const SESSION_TOKEN = "secret-session-token"');
+      expect(html).toContain('const UI_RESOURCE_TOKEN = "app-resource-token"');
+      expect(html).toContain('iframe.src = "/ui-app?resource=" + encodeURIComponent(UI_RESOURCE_TOKEN)');
+      expect(html).not.toContain('iframe.src = "/ui-app?session="');
     });
 
     it("injects tool arguments", () => {
@@ -181,6 +197,7 @@ describe("buildHostHtmlTemplate", () => {
 
       expect(csp).toBe([
         "default-src 'none'",
+        "sandbox allow-scripts allow-forms allow-modals allow-popups allow-downloads",
         "script-src 'self' 'unsafe-inline' https://esm.sh",
         "style-src 'self' 'unsafe-inline' https://esm.sh",
         "font-src 'self' https://esm.sh",
@@ -256,6 +273,7 @@ describe("buildHostHtmlTemplate", () => {
 
       expect(csp).toBe([
         "default-src 'none'",
+        "sandbox allow-scripts allow-forms allow-modals allow-popups allow-downloads",
         "script-src 'self' 'unsafe-inline'",
         "style-src 'self' 'unsafe-inline'",
         "font-src 'self'",
@@ -288,6 +306,7 @@ describe("buildHostHtmlTemplate", () => {
 
       expect(buildCspMetaContent(undefined)).toBe([
         "default-src 'none'",
+        "sandbox allow-scripts allow-forms allow-modals allow-popups allow-downloads",
         "script-src 'self' 'unsafe-inline'",
         "style-src 'self' 'unsafe-inline'",
         "font-src 'self'",

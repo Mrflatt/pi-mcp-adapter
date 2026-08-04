@@ -95,6 +95,7 @@ export interface UiServerHandle {
 
 export async function startUiServer(options: UiServerOptions): Promise<UiServerHandle> {
   const sessionToken = options.sessionToken ?? randomUUID();
+  const uiResourceToken = randomUUID();
   const log = logger.child({ 
     component: "UiServer",
     server: options.serverName,
@@ -273,13 +274,11 @@ export async function startUiServer(options: UiServerOptions): Promise<UiServerH
       }
 
       if (method === "GET" && url.pathname === "/") {
-        if (!url.searchParams.has("session") && isLoopbackAddress(req.socket.remoteAddress)) {
-          const dest = `/?session=${encodeURIComponent(sessionToken)}`;
+        if (!url.searchParams.has("session")) {
           res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
           res.end(
-            `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(`MCP UI - ${options.serverName} / ${options.toolName}`)}</title>` +
-              `<noscript><meta http-equiv="refresh" content="0;url=${dest}"></noscript></head>` +
-              `<body><script>location.replace(${JSON.stringify(dest)});</script></body></html>`,
+            "<!doctype html><html><head><meta charset=\"utf-8\"><title>MCP UI</title></head>" +
+              "<body><p>Open the authenticated MCP UI URL shown by Pi.</p></body></html>",
           );
           return;
         }
@@ -288,6 +287,7 @@ export async function startUiServer(options: UiServerOptions): Promise<UiServerH
 
         const html = buildHostHtmlTemplate({
           sessionToken,
+          uiResourceToken,
           serverName: options.serverName,
           toolName: options.toolName,
           toolArgs: options.toolArgs,
@@ -332,7 +332,7 @@ export async function startUiServer(options: UiServerOptions): Promise<UiServerH
       }
 
       if (method === "GET" && url.pathname === "/ui-app") {
-        if (!validateTokenQuery(url, sessionToken, res)) return;
+        if (!validateTokenQuery(url, uiResourceToken, res, "resource")) return;
         touchHeartbeat();
         // Enforce host metadata independently of where app HTML places its document head.
         const cspContent = buildCspMetaContent(options.resource.meta.csp);
@@ -770,21 +770,13 @@ function isAllowedHost(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
 }
 
-function isLoopbackAddress(address: string | undefined): boolean {
-  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function validateTokenQuery(url: URL, expected: string, res: ServerResponse): boolean {
-  const token = url.searchParams.get("session");
+function validateTokenQuery(
+  url: URL,
+  expected: string,
+  res: ServerResponse,
+  parameter = "session",
+): boolean {
+  const token = url.searchParams.get(parameter);
   if (token !== expected) {
     sendJson(res, 403, { ok: false, error: "Invalid session" });
     return false;

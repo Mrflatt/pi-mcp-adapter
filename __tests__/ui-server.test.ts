@@ -162,6 +162,15 @@ function createServerOptions(overrides: Partial<UiServerOptions> = {}): UiServer
   };
 }
 
+async function getUiAppUrl(handle: UiServerHandle): Promise<string> {
+  const host = await request(handle.url);
+  const match = typeof host.body === "string"
+    ? host.body.match(/const UI_RESOURCE_TOKEN = "([^"]+)";/)
+    : null;
+  if (!match?.[1]) throw new Error("UI resource token missing from host page");
+  return `http://localhost:${handle.port}/ui-app?resource=${encodeURIComponent(match[1])}`;
+}
+
 describe("UiServer", () => {
   let handle: UiServerHandle | null = null;
 
@@ -236,7 +245,7 @@ describe("UiServer", () => {
       expect(res.body).toEqual({ ok: false, error: "Invalid session" });
     });
 
-    it("serves a tokenless loopback landing shell for Moshi preview", async () => {
+    it("serves a tokenless Moshi landing page without disclosing the session", async () => {
       handle = await startUiServer(createServerOptions());
       const url = `http://localhost:${handle.port}/`;
 
@@ -244,8 +253,10 @@ describe("UiServer", () => {
 
       expect(res.status).toBe(200);
       expect(res.headers["content-type"]).toContain("text/html");
-      expect(res.body).toContain("location.replace");
-      expect(res.body).toContain(encodeURIComponent(handle.sessionToken));
+      expect(res.body).toContain("Open the authenticated MCP UI URL shown by Pi");
+      expect(res.body).not.toContain("location.replace");
+      expect(res.body).not.toContain(handle.sessionToken);
+      expect(res.body).not.toContain(encodeURIComponent(handle.sessionToken));
     });
 
     it("answers HEAD discovery probes without a session token", async () => {
@@ -276,12 +287,32 @@ describe("UiServer", () => {
       const res = await request(url, { headers: { Host: `[::1]:${handle.port}` } });
 
       expect(res.status).toBe(200);
-      expect(res.body).toContain("location.replace");
+      expect(res.body).toContain("Open the authenticated MCP UI URL shown by Pi");
+      expect(res.body).not.toContain(handle.sessionToken);
     });
   });
 
   describe("GET /ui-app", () => {
-    it("enforces metadata CSP with a response header while preserving app HTML", async () => {
+    it("does not accept the app resource token on privileged proxy routes", async () => {
+      const manager = createMockManager();
+      handle = await startUiServer(createServerOptions({ manager }));
+      const appUrl = new URL(await getUiAppUrl(handle));
+      const resourceToken = appUrl.searchParams.get("resource");
+
+      expect(resourceToken).toBeTruthy();
+      expect(resourceToken).not.toBe(handle.sessionToken);
+      expect((await request(`http://localhost:${handle.port}/ui-app?session=${handle.sessionToken}`)).status).toBe(403);
+
+      const res = await request(`http://localhost:${handle.port}/proxy/tools/call`, {
+        method: "POST",
+        body: { token: resourceToken, params: { name: "some_tool", arguments: {} } },
+      });
+
+      expect(res.status).toBe(403);
+      expect(manager.getConnection).not.toHaveBeenCalled();
+    });
+
+    it("enforces metadata CSP and response-level sandboxing while preserving app HTML", async () => {
       const appHtml = `<!-- decoy <head><meta http-equiv="Content-Security-Policy" content="default-src *"></head> -->
 <!doctype html>
 <html>
@@ -305,7 +336,7 @@ describe("UiServer", () => {
           },
         }),
       }));
-      const url = `http://localhost:${handle.port}/ui-app?session=${handle.sessionToken}`;
+      const url = await getUiAppUrl(handle);
 
       const res = await request(url);
       const cspHeader = res.headers["content-security-policy"];
@@ -313,6 +344,9 @@ describe("UiServer", () => {
       expect(res.status).toBe(200);
       expect(res.headers["content-type"]).toContain("text/html");
       expect(cspHeader).toContain("default-src 'none'");
+      expect(cspHeader).toContain("sandbox allow-scripts allow-forms allow-modals allow-popups allow-downloads");
+      expect(cspHeader).not.toContain("allow-popups-to-escape-sandbox");
+      expect(cspHeader).not.toContain("allow-same-origin");
       expect(cspHeader).toContain("script-src 'self' 'unsafe-inline' https://esm.sh");
       expect(cspHeader).toContain("style-src 'self' 'unsafe-inline' https://esm.sh");
       expect(cspHeader).toContain("connect-src https://api.excalidraw.com");
@@ -337,7 +371,7 @@ describe("UiServer", () => {
         }),
       }));
 
-      const res = await request(`http://localhost:${handle.port}/ui-app?session=${handle.sessionToken}`);
+      const res = await request(await getUiAppUrl(handle));
 
       expect(res.status).toBe(200);
       expect(res.headers["content-security-policy"]).toContain("https://safe.example.com");
@@ -355,7 +389,7 @@ describe("UiServer", () => {
         }),
       }));
 
-      const res = await request(`http://localhost:${handle.port}/ui-app?session=${handle.sessionToken}`);
+      const res = await request(await getUiAppUrl(handle));
 
       expect(res.status).toBe(200);
       expect(res.headers["content-security-policy"]).toContain("default-src 'none'");
@@ -365,7 +399,7 @@ describe("UiServer", () => {
 
     it("emits restrictive default CSP when metadata is undefined", async () => {
       handle = await startUiServer(createServerOptions());
-      const url = `http://localhost:${handle.port}/ui-app?session=${handle.sessionToken}`;
+      const url = await getUiAppUrl(handle);
 
       const res = await request(url);
 
@@ -776,6 +810,26 @@ describe("UiServer", () => {
       expect(res.status).toBe(403);
     });
 
+    it("rejects anonymous tool calls", async () => {
+      const callTool = vi.fn();
+      const manager = createMockManager({
+        getConnection: vi.fn().mockReturnValue({
+          status: "connected",
+          client: { callTool },
+          tools: [{ name: "some_tool" }],
+        }),
+      });
+      handle = await startUiServer(createServerOptions({ manager }));
+
+      const res = await request(`http://localhost:${handle.port}/proxy/tools/call`, {
+        method: "POST",
+        body: { params: { name: "some_tool", arguments: {} } },
+      });
+
+      expect(res.status).toBe(403);
+      expect(callTool).not.toHaveBeenCalled();
+    });
+
     it("tracks in-flight requests", async () => {
       const manager = createMockManager();
       handle = await startUiServer(createServerOptions({ manager }));
@@ -795,6 +849,19 @@ describe("UiServer", () => {
   });
 
   describe("POST /proxy/ui/consent", () => {
+    it("rejects anonymous approval", async () => {
+      const consentManager = createMockConsentManager();
+      handle = await startUiServer(createServerOptions({ consentManager }));
+
+      const res = await request(`http://localhost:${handle.port}/proxy/ui/consent`, {
+        method: "POST",
+        body: { params: { approved: true } },
+      });
+
+      expect(res.status).toBe(403);
+      expect(consentManager.registerDecision).not.toHaveBeenCalled();
+    });
+
     it("registers approval", async () => {
       const consentManager = createMockConsentManager();
       handle = await startUiServer(createServerOptions({ consentManager }));
@@ -831,6 +898,20 @@ describe("UiServer", () => {
   });
 
   describe("POST /proxy/ui/message", () => {
+    it("rejects anonymous messages", async () => {
+      const onMessage = vi.fn();
+      handle = await startUiServer(createServerOptions({ onMessage }));
+
+      const res = await request(`http://localhost:${handle.port}/proxy/ui/message`, {
+        method: "POST",
+        body: { params: { type: "prompt", prompt: "Injected" } },
+      });
+
+      expect(res.status).toBe(403);
+      expect(handle.getSessionMessages().prompts).toEqual([]);
+      expect(onMessage).not.toHaveBeenCalled();
+    });
+
     it("tracks prompt messages", async () => {
       const onMessage = vi.fn();
       handle = await startUiServer(createServerOptions({ onMessage }));
