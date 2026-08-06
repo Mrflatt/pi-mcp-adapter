@@ -7,12 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.21.0] - 2026-08-06
+
 ### Added
 - Added MCP 2026-07-28 endpoint probing and defaulted curated remote setup presets to automatic protocol negotiation for stateless MCP servers.
 - Added `resolveServerFromToolName` so permission brokers can map prefixed MCP tool names back to their owning server. Thanks @jagaliano for PR #295.
 - Added per-server `oauth.skipIssuerMetadataValidation` for known-misconfigured OAuth servers. Thanks @embik for issue #297.
 - Added a configurable `mcp.panel.save` keybinding for the MCP panel Save action. Thanks @tim-hilde for issue #299.
 - Added `settings.agentPluginPaths` to load MCP servers from Agent Plugins 1.0 packages.
+
+### Changed
+- Refined MCP endpoint probing internals with typed strategies while preserving request order, fallback behavior, and diagnostics.
 
 ### Fixed
 - Rejected Agent Plugin command paths that escape the plugin directory and skipped normalized server-name collisions instead of overwriting servers.
