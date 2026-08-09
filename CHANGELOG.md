@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.21.2] - 2026-08-09
+
 ### Fixed
 - Reported MCP servers still connecting after a zero-result tool search, so agents retry instead of treating the result as definitive. Thanks @Leon69924 for issue #316.
 - Rejected malformed MCP config server entries and persisted OAuth credential records at their trust boundaries, so invalid local state fails before it reaches runtime connection or token code.
