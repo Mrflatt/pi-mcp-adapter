@@ -30,6 +30,37 @@ import {
   type StoredClientInfo,
 } from "./mcp-auth.ts"
 import { resolveCommandSecret } from "./utils.ts"
+import { getAppClientUri, getAppName } from "./agent-dir.ts"
+
+/**
+ * Client name advertised during Dynamic Client Registration.
+ *
+ * A distribution that rebrands pi (arc, tau, …) should register under its own
+ * name — otherwise every consent screen its users see asks them to authorize
+ * an app they have never run. Stock pi keeps the long-standing
+ * "Pi Coding Agent" so existing registrations are unaffected.
+ */
+function defaultClientName(): string {
+  const app = getAppName()
+  return app === "pi" ? "Pi Coding Agent" : app
+}
+
+/**
+ * Client homepage advertised during Dynamic Client Registration.
+ *
+ * RFC 7591 defines client_uri as the home page *of the client*. Under a
+ * rebranded pi the client is that distribution, not this adapter, so pointing
+ * at the adapter's repository misidentifies it on the consent screen. There is
+ * no way to guess the right URL and a wrong one is worse than none, so the
+ * field is omitted unless a server config supplies oauth.clientUri.
+ *
+ * Stock pi keeps the historical value.
+ */
+function defaultClientUri(): string | undefined {
+  const declared = getAppClientUri()
+  if (declared) return declared
+  return getAppName() === "pi" ? "https://github.com/nicobailon/pi-mcp-adapter" : undefined
+}
 
 type IssuerBoundClientInformation = OAuthClientInformationMixed & { issuer?: string }
 type IssuerBoundTokens = OAuthTokens & { issuer?: string }
@@ -189,6 +220,11 @@ export class McpOAuthProvider implements OAuthClientProvider {
     return this.redirectUrlSnapshot
   }
 
+  /** Configured homepage, else the historical default on stock pi, else nothing. */
+  private get clientUri(): string | undefined {
+    return this.config.clientUri ?? defaultClientUri()
+  }
+
   /**
    * Client metadata for dynamic registration.
    * Describes this client to the OAuth authorization server.
@@ -196,8 +232,8 @@ export class McpOAuthProvider implements OAuthClientProvider {
   get clientMetadata(): OAuthClientMetadata {
     if (this.usesClientCredentials) {
       return {
-        client_name: this.config.clientName ?? "Pi Coding Agent",
-        client_uri: this.config.clientUri ?? "https://github.com/nicobailon/pi-mcp-adapter",
+        client_name: this.config.clientName ?? defaultClientName(),
+        ...(this.clientUri !== undefined ? { client_uri: this.clientUri } : {}),
         redirect_uris: [],
         grant_types: ["client_credentials"],
         token_endpoint_auth_method: this.config.clientSecret ? "client_secret_post" : "none",
@@ -211,8 +247,8 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
     return {
       redirect_uris: [redirectUrl],
-      client_name: this.config.clientName ?? "Pi Coding Agent",
-      client_uri: this.config.clientUri ?? "https://github.com/nicobailon/pi-mcp-adapter",
+      client_name: this.config.clientName ?? defaultClientName(),
+      ...(this.clientUri !== undefined ? { client_uri: this.clientUri } : {}),
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       token_endpoint_auth_method: this.config.clientSecret ? "client_secret_post" : "none",
