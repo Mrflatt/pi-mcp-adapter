@@ -909,7 +909,7 @@ function mergeConfigs(base: McpConfig, next: McpConfig): McpConfig {
 // different url, these MUST NOT be inherited from the lower-precedence entry —
 // otherwise the original endpoint's credentials would be shipped to the new
 // url. See the SECURITY note in mergeServerMaps.
-const URL_BOUND_AUTH_FIELDS = ["headers", "bearerToken", "bearerTokenEnv", "bearerTokenStore", "requestHeadersCommand", "caFile"] as const;
+const URL_BOUND_AUTH_FIELDS = ["headers", "bearerToken", "bearerTokenEnv", "bearerTokenStore", "requestHeadersCommand", "caFile", "googleAuth"] as const;
 
 function mergeServerMaps(
   base: Record<string, ServerEntry>,
@@ -933,7 +933,7 @@ function mergeServerMaps(
       baseEntry = { ...existing };
       for (const field of [
         "url", "headers", "requestHeadersCommand", "caFile", "auth", "bearerToken",
-        "bearerTokenEnv", "bearerTokenStore", "oauth", "httpTransport", "socket",
+        "bearerTokenEnv", "bearerTokenStore", "oauth", "googleAuth", "httpTransport", "socket",
       ] as const) {
         delete baseEntry[field];
       }
@@ -949,7 +949,7 @@ function mergeServerMaps(
       for (const field of [
         "command", "args", "env", "cwd", "pluginDataDir", "literalEnv", "inheritEnv", "url",
         "headers", "requestHeadersCommand", "caFile", "auth", "bearerToken", "bearerTokenEnv",
-        "bearerTokenStore", "oauth", "httpTransport",
+        "bearerTokenStore", "oauth", "googleAuth", "httpTransport",
       ] as const) {
         delete baseEntry[field];
       }

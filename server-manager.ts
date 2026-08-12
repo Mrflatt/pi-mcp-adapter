@@ -11,6 +11,7 @@ import {
   StreamableHTTPClientTransport,
   UnauthorizedError,
   type FetchLike,
+  type AuthProvider,
   type GetPromptResult,
   type ListToolsResult,
   type ReadResourceResult,
@@ -44,6 +45,13 @@ import { logger } from "./logger.ts";
 import { RESOURCE_MIME_TYPE } from "./ui-app-bridge-helpers.ts";
 import { isBuiltInAgentPlugin } from "./agent-plugin-provenance.ts";
 import { McpOAuthProvider } from "./mcp-oauth-provider.ts";
+import {
+  createGoogleAuthProvider,
+  fetchGoogleAccessToken,
+  fetchGoogleIdentityToken,
+  isGoogleAuth,
+  resolveGoogleIdentityConfig,
+} from "./google-auth.ts";
 import { explainRegistrationRejection, extractOAuthConfig, supportsOAuth, type McpOAuthRuntime } from "./mcp-auth-flow.ts";
 import {
   captureOAuthAuthority,
@@ -95,7 +103,7 @@ type HttpAuthProviderState =
   | { status: "disabled" }
   | { status: "implicit-deferred" }
   | { status: "implicit-stored"; provider: McpOAuthProvider }
-  | { status: "explicit"; provider: McpOAuthProvider }
+  | { status: "explicit"; provider: McpOAuthProvider | AuthProvider }
   | { status: "implicit-challenged"; provider: McpOAuthProvider };
 
 function isLiteralLocalAddress(url: string): boolean {
@@ -1716,13 +1724,22 @@ export class McpServerManager {
     const hasImplicitStoredTokens = implicitStoredAuth?.status === "present"
       && implicitStoredAuth.entry.tokens !== undefined;
     if (hasImplicitStoredTokens) invalidateAuthEntryCache(serverName);
-    let authState: HttpAuthProviderState = supportsOAuth(definition)
-      ? definition.auth === undefined
-        ? hasImplicitStoredTokens
-          ? { status: "implicit-stored", provider: createAuthProvider() }
-          : { status: "implicit-deferred" }
-        : { status: "explicit", provider: createAuthProvider() }
-      : { status: "disabled" };
+    const createGoogleProvider = (): AuthProvider => {
+      if (definition.auth === "google-access-token") {
+        return createGoogleAuthProvider(serverName, () => fetchGoogleAccessToken());
+      }
+      const { audience, serviceAccount } = resolveGoogleIdentityConfig(definition, serverName);
+      return createGoogleAuthProvider(serverName, () => fetchGoogleIdentityToken(serviceAccount, audience));
+    };
+    let authState: HttpAuthProviderState = isGoogleAuth(definition)
+      ? { status: "explicit", provider: createGoogleProvider() }
+      : supportsOAuth(definition)
+        ? definition.auth === undefined
+          ? hasImplicitStoredTokens
+            ? { status: "implicit-stored", provider: createAuthProvider() }
+            : { status: "implicit-deferred" }
+          : { status: "explicit", provider: createAuthProvider() }
+        : { status: "disabled" };
 
     const commandFetch = definition.requestHeadersCommand
       ? createRequestHeadersCommandFetch(definition.requestHeadersCommand, caFetch?.fetch)

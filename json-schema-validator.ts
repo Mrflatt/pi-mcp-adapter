@@ -20,9 +20,14 @@ const SCHEMARS_NUMERIC_FORMATS = [
   "uint", "uint8", "uint16", "uint32", "uint64", "uint128",
 ];
 
+const GOOGLE_FORMATS = [
+  "google-duration", "google-datetime", "google-fieldmask",
+  "google-int64", "google-uint32", "google-uint64",
+];
+
 function addKnownFormats(ajv: Ajv): void {
   addFormats(ajv);
-  for (const format of SCHEMARS_NUMERIC_FORMATS) ajv.addFormat(format, true);
+  for (const format of [...SCHEMARS_NUMERIC_FORMATS, ...GOOGLE_FORMATS]) ajv.addFormat(format, true);
 }
 
 type SchemaDialect =

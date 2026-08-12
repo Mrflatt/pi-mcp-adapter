@@ -90,6 +90,31 @@ You can optionally provide a pre-registered client:
 
 Dynamic fallback clients normally omit `oauth.redirectUri`; the adapter starts the callback server lazily on the default loopback host (`127.0.0.1`, as RFC 8252 recommends) and asks the OS for an available local port when auth begins. Use `oauth.redirectUri` when the provider requires a pre-registered callback, such as Slack MCP's Claude-compatible `http://localhost:3118/callback`, or when a server only accepts a `localhost` redirect (for example `http://localhost:{port}/callback`). A loopback URI must use `http://` with `localhost`, `127.0.0.1`, or `[::1]`. It may contain an explicit port, which is bound exactly, or `{port}`, which is replaced with the OS-assigned port in the authorization and token requests.
 
+### Google Application Default Credentials
+
+Google ADC modes use credentials from `gcloud auth login --update-adc` or `GOOGLE_APPLICATION_CREDENTIALS`. Only `authorized_user` ADC is supported. Tokens are fetched on demand, cached in-process for 55 minutes, and refreshed after a 401. Identity-token mode impersonates a service account because user ADC cannot mint OIDC tokens directly; the user needs `roles/iam.serviceAccountTokenCreator` on that account.
+
+```json
+{
+  "mcpServers": {
+    "gcp-logging": {
+      "url": "https://logging.googleapis.com/mcp",
+      "auth": "google-access-token"
+    },
+    "iap-mcp": {
+      "url": "https://iap-protected.example.com/mcp",
+      "auth": "google-identity-token",
+      "googleAuth": {
+        "audience": "https://iap-protected.example.com",
+        "serviceAccount": "mcp-impersonator@my-project.iam.gserviceaccount.com"
+      }
+    }
+  }
+}
+```
+
+Both `googleAuth.audience` and `googleAuth.serviceAccount` are required for identity-token mode and support `${VAR}` / `$env:VAR` interpolation.
+
 ### Non-Interactive `client_credentials`
 
 For machine-to-machine OAuth, configure `grantType: "client_credentials"`.

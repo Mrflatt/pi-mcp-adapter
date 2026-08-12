@@ -434,6 +434,14 @@ export interface HttpRequestHeadersCommand {
   timeoutMs?: number;
 }
 
+/** Configuration for Google ADC identity-token authentication. */
+export interface GoogleAuthConfig {
+  /** Identity-token audience, such as the IAP OAuth client ID or service URL. */
+  audience: string;
+  /** Service account to impersonate; the user needs roles/iam.serviceAccountTokenCreator. */
+  serviceAccount: string;
+}
+
 // Server configuration
 export interface ServerEntry {
   /** Short human summary shown by mcp({ server }) and the /mcp-adapter panel, and ranked by mcp({ search }). */
@@ -461,7 +469,9 @@ export interface ServerEntry {
    * - { provider } - Send the token of a Pi provider (`/login <provider>`) on every request; user-global config only
    * If not specified and url is present, OAuth will be auto-detected unless custom headers are configured
    */
-  auth?: "oauth" | "bearer" | false | { provider: string };
+  auth?: "oauth" | "bearer" | "google-access-token" | "google-identity-token" | false | { provider: string };
+  /** Required for google-identity-token authentication. */
+  googleAuth?: GoogleAuthConfig;
   bearerToken?: string;
   bearerTokenEnv?: string;
   /** Read a static bearer token from the adapter-owned OS credential store. */
