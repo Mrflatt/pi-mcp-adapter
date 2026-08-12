@@ -945,6 +945,8 @@ export function supportsOAuth(definition: ServerEntry): boolean {
   // Explicitly disabled via auth: false or oauth: false
   if (definition.auth === false) return false
   if (definition.oauth === false) return false
+  // Google ADC modes are not OAuth browser flows.
+  if (definition.auth === "google-access-token" || definition.auth === "google-identity-token") return false
   if (definition.auth === "oauth") return true
   
   // Configured custom headers take precedence over implicit OAuth auto-detection.

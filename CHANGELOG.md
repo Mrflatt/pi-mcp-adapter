@@ -7,8 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added `auth: "google-access-token"` and `auth: "google-identity-token"` for Google Application Default Credentials. Access-token mode exchanges user ADC for a Google OAuth access token; identity-token mode impersonates a service account to mint an OIDC token for IAP-protected MCP servers.
+
 ### Fixed
 - Kept remote `/mcp-auth` authorization links reachable before the callback input opens. Thanks @trevorleibert-mixpanel for PR #331.
+- Registered Google-proprietary JSON Schema formats (`google-duration`, `google-datetime`, `google-fieldmask`, `google-int64`, `google-uint32`, `google-uint64`) as pass-through validators so GCP MCP servers no longer emit AJV "unknown format" warnings on connect.
 
 ## [2.23.0] - 2026-08-11
 

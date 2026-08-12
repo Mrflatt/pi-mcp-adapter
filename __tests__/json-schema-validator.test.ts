@@ -92,6 +92,29 @@ describe("createJsonSchemaValidator", () => {
     }, {})).toThrow(/unsupported.*dialect|2020-12/i);
   });
 
+  it("accepts Google-proprietary formats as pass-through", () => {
+    const formats = [
+      "uint32",
+      "uint64",
+      "google-duration",
+      "google-datetime",
+      "google-fieldmask",
+      "google-int64",
+      "google-uint32",
+      "google-uint64",
+    ];
+
+    for (const format of formats) {
+      const schema = {
+        $schema: draft07,
+        type: "object",
+        properties: { value: { type: "string", format } },
+        required: ["value"],
+      };
+      expect(validate(schema, { value: "anything" }).valid, format).toBe(true);
+    }
+  });
+
   it("creates isolated validator providers", () => {
     const first = createJsonSchemaValidator();
     const second = createJsonSchemaValidator();

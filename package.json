@@ -111,6 +111,7 @@
     "ui-server.ts",
     "glimpse-ui.ts",
     "npx-resolver.ts",
+    "google-auth.ts",
     "oauth-handler.ts",
     "oauth.ts",
     "mcp-auth.ts",

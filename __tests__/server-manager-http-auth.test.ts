@@ -1,5 +1,8 @@
 import { SdkErrorCode, SdkHttpError } from "@modelcontextprotocol/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 type OAuthProviderLike = {
   redirectUrl?: string;
@@ -195,6 +198,54 @@ describe("McpServerManager HTTP bearer auth", () => {
     });
 
     expect(mocks.httpTransports.at(-1)!.options.requestInit?.headers?.Authorization).toBe("Bearer named-env-token");
+  });
+
+  it("attaches a Google ADC AuthProvider for access-token auth", async () => {
+    const { McpServerManager } = await import("../server-manager.ts");
+    const { resetGoogleAuthCache } = await import("../google-auth.ts");
+    resetGoogleAuthCache();
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ access_token: "ya29.from-adc" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const adcPath = join(mkdtempSync(join(tmpdir(), "pi-mcp-http-google-")), "adc.json");
+    writeFileSync(adcPath, JSON.stringify({
+      type: "authorized_user",
+      client_id: "client-id",
+      client_secret: "client-secret",
+      refresh_token: "refresh-token",
+    }));
+    const previousAdc = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = adcPath;
+
+    try {
+      const manager = new McpServerManager();
+      await manager.connect("logging", {
+        url: "https://logging.googleapis.com/mcp",
+        auth: "google-access-token",
+      });
+
+      const authProvider = mocks.httpTransports.at(-1)!.options.authProvider as { token?: () => Promise<string | undefined> } | undefined;
+      expect(authProvider?.token).toEqual(expect.any(Function));
+      expect(authProvider).not.toHaveProperty("redirectUrl");
+      await expect(authProvider?.token?.()).resolves.toBe("ya29.from-adc");
+    } finally {
+      vi.unstubAllGlobals();
+      resetGoogleAuthCache();
+      if (previousAdc === undefined) delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+      else process.env.GOOGLE_APPLICATION_CREDENTIALS = previousAdc;
+    }
+  });
+
+  it("requires googleAuth for identity-token mode", async () => {
+    const { McpServerManager } = await import("../server-manager.ts");
+    const manager = new McpServerManager();
+    await expect(manager.connect("iap", {
+      url: "https://iap.example.com/mcp",
+      auth: "google-identity-token",
+    })).rejects.toThrow(/googleAuth.audience/);
+    expect(mocks.httpTransports).toHaveLength(0);
   });
 
   it("uses configured headers without implicit OAuth", async () => {

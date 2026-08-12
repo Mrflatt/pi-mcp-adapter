@@ -891,6 +891,32 @@ describe("config discovery", () => {
     expect(JSON.stringify(entry)).not.toContain("oauth-client-secret");
   });
 
+  it("drops inherited googleAuth when a url-only override repoints the server", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-urlauth-google-home-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-mcp-urlauth-google-project-"));
+    writeBakedAndOverride(
+      home,
+      project,
+      {
+        url: URL_A,
+        auth: "google-identity-token",
+        googleAuth: {
+          audience: "https://iap.example.com",
+          serviceAccount: "sa@example.iam.gserviceaccount.com",
+        },
+      },
+      { url: URL_B },
+    );
+
+    const { loadMcpConfig } = await import("../config.ts");
+    const config = loadMcpConfig();
+
+    const entry = config.mcpServers.litellm;
+    expect(entry).toEqual({ url: URL_B, auth: "google-identity-token" });
+    expect(entry.googleAuth).toBeUndefined();
+    expect(JSON.stringify(entry)).not.toContain("sa@example.iam.gserviceaccount.com");
+  });
+
   it("preserves inherited oauth false when a url-only override repoints the server", async () => {
     const home = mkdtempSync(join(tmpdir(), "pi-mcp-urlauth-oauth-false-home-"));
     const project = mkdtempSync(join(tmpdir(), "pi-mcp-urlauth-oauth-false-project-"));

@@ -356,6 +356,23 @@ export interface OAuthConfig {
   skipIssuerMetadataValidation?: boolean;
 }
 
+// Google Cloud auth configuration
+export interface GoogleAuthConfig {
+  /**
+   * Audience for the identity token — typically the OAuth client ID or
+   * service URL of the IAP-protected resource.
+   * Required when auth is 'google-identity-token'.
+   */
+  audience: string;
+  /**
+   * Service account email to impersonate for generating the identity token.
+   * Required when using user ADC credentials (gcloud auth login --update-adc)
+   * because user accounts cannot produce identity tokens directly.
+   * The calling user needs roles/iam.serviceAccountTokenCreator on this account.
+   */
+  serviceAccount: string;
+}
+
 // Server configuration
 export interface ServerEntry {
   command?: string;
@@ -371,10 +388,12 @@ export interface ServerEntry {
    * Authentication type:
    * - 'oauth' - Use OAuth 2.1 (auto-discovers endpoints, supports dynamic client registration)
    * - 'bearer' - Use static Bearer token
+   * - 'google-access-token' - Fetch an OAuth 2.0 access token from Google ADC
+   * - 'google-identity-token' - Fetch an OIDC identity token for IAP-protected resources
    * - false - Disable authentication
    * If not specified and url is present, OAuth will be auto-detected unless custom headers are configured
    */
-  auth?: "oauth" | "bearer" | false;
+  auth?: "oauth" | "bearer" | "google-access-token" | "google-identity-token" | false;
   bearerToken?: string;
   bearerTokenEnv?: string;
   /** 
@@ -383,6 +402,8 @@ export interface ServerEntry {
    * Set to false to explicitly disable OAuth for this server.
    */
   oauth?: OAuthConfig | false;
+  /** Google Cloud auth configuration. Required when auth is 'google-identity-token'. */
+  googleAuth?: GoogleAuthConfig;
   lifecycle?: "keep-alive" | "lazy" | "lazy-keep-alive" | "eager";
   idleTimeout?: number; // minutes, overrides global setting
   requestTimeoutMs?: number; // milliseconds, overrides global request timeout when > 0

@@ -101,6 +101,21 @@ describe("mcp-auth-flow", () => {
       const definition: ServerEntry = {}
       assert.strictEqual(supportsOAuth(definition), false)
     })
+
+    it("should return false for Google ADC auth modes", () => {
+      assert.strictEqual(supportsOAuth({
+        url: "https://logging.googleapis.com/mcp",
+        auth: "google-access-token",
+      }), false)
+      assert.strictEqual(supportsOAuth({
+        url: "https://iap.example.com/mcp",
+        auth: "google-identity-token",
+        googleAuth: {
+          audience: "https://iap.example.com",
+          serviceAccount: "sa@example.iam.gserviceaccount.com",
+        },
+      }), false)
+    })
   })
 
   describe("getAuthStatus", () => {

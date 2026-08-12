@@ -207,7 +207,9 @@ In the configuration examples below, `30000` is illustrative only. If `requestTi
 | `cwd` | Working directory; supports `${VAR}`, `$env:VAR`, and `~` expansion |
 | `url` | HTTP endpoint (StreamableHTTP with SSE fallback); supports raw `${VAR}` and `$env:VAR` interpolation, and missing URL variables fail before any request is sent |
 | `headers` | HTTP headers; supports `${VAR}` and `$env:VAR` interpolation. A value beginning with `!` runs a command when the HTTP server connects or OAuth authenticates; use `!!` for a literal leading `!`. |
-| `auth` | `"bearer"` or `"oauth"` |
+| `auth` | `"bearer"`, `"oauth"`, `"google-access-token"`, or `"google-identity-token"` |
+| `googleAuth.audience` | Identity-token audience (OAuth client ID or IAP-protected service URL). Required when `auth` is `"google-identity-token"`. Supports `${VAR}` / `$env:VAR` interpolation. |
+| `googleAuth.serviceAccount` | Service account email to impersonate for identity tokens. The calling user needs `roles/iam.serviceAccountTokenCreator` on this account. Required when `auth` is `"google-identity-token"`. Supports `${VAR}` / `$env:VAR` interpolation. |
 | `oauth.grantType` | `"authorization_code"` (default) or `"client_credentials"` for non-interactive machine auth |
 | `oauth.clientId` | Pre-registered OAuth client ID. MCP 2026 prefers pre-registered clients or Client ID Metadata Documents; this adapter falls back to Dynamic Client Registration when the ID is omitted and the server supports it. |
 | `oauth.clientSecret` | OAuth client secret for confidential clients; a value beginning with `!` runs a command when OAuth authenticates, while `!!` escapes a literal leading `!` |
@@ -246,6 +248,27 @@ For pre-registered browser OAuth clients, set `oauth.redirectUri` to the exact c
 If an internal authorization server publishes mismatched OAuth metadata and cannot be fixed immediately, set `oauth.skipIssuerMetadataValidation: true` on that server only. This is security-weakening. It disables the RFC 8414 issuer echo check and should not be used for public or untrusted servers.
 
 Secret values in `headers`, `bearerToken`, `oauth.clientSecret`, and stdio `env` may use a leading `!command` to obtain their value at connection or authentication time. The command runs with stdin and stderr suppressed, stdout is limited to 1 MiB and trimmed, and it must finish within 10 seconds with non-empty output; failures stop the connection or authentication flow. Commands are not run during OAuth discovery or while reading, merging, previewing, hashing, or rendering configuration. Use `!!` to escape a literal leading `!`; ordinary and escaped values retain environment interpolation.
+
+Google ADC modes use Application Default Credentials from `gcloud auth login --update-adc` (or `GOOGLE_APPLICATION_CREDENTIALS`). Only `authorized_user` ADC is supported. Tokens are fetched on demand, cached in-process for 55 minutes, and refreshed after a 401. Identity-token mode impersonates a service account because user ADC cannot mint OIDC tokens directly:
+
+```json
+{
+  "mcpServers": {
+    "gcp-logging": {
+      "url": "https://logging.googleapis.com/mcp",
+      "auth": "google-access-token"
+    },
+    "iap-mcp": {
+      "url": "https://iap-protected.example.com/mcp",
+      "auth": "google-identity-token",
+      "googleAuth": {
+        "audience": "https://iap-protected.example.com",
+        "serviceAccount": "mcp-impersonator@my-project.iam.gserviceaccount.com"
+      }
+    }
+  }
+}
+```
 
 ### Shared MCP processes with rmcp-mux
 
