@@ -11,6 +11,23 @@ import type {
 // ajv-formats types target its bundled ajv; the runtime accepts both instances.
 const addFormats = addFormatsImport as unknown as (instance: Ajv) => void;
 
+// Pass-through formats used by GCP MCP servers (Cloud Logging, etc.).
+// Without these, AJV logs "unknown format X ignored in schema" on every connect.
+const EXTRA_FORMATS = [
+  "uint32",
+  "uint64",
+  "google-duration",
+  "google-datetime",
+  "google-fieldmask",
+  "google-int64",
+  "google-uint32",
+  "google-uint64",
+] as const;
+
+function registerExtraFormats(ajv: Ajv): void {
+  for (const fmt of EXTRA_FORMATS) ajv.addFormat(fmt, { validate: () => true });
+}
+
 type SchemaDialect =
   | { status: "unstamped" }
   | { status: "stamped"; uri: string };
@@ -45,6 +62,7 @@ export function createJsonSchemaValidator(): JsonSchemaValidatorProvider {
           const Ajv2020 = Ajv2020Import as unknown as typeof Ajv;
           const ajv = new Ajv2020({ strict: false, allErrors: true });
           addFormats(ajv);
+          registerExtraFormats(ajv);
           return new AjvJsonSchemaValidator(ajv);
         })();
         return draft2020Validator.getValidator<T>(schema);
@@ -61,6 +79,7 @@ export function createJsonSchemaValidator(): JsonSchemaValidatorProvider {
           allErrors: true,
         });
         addFormats(ajv);
+        registerExtraFormats(ajv);
         return new AjvJsonSchemaValidator(ajv);
       })();
       return draft07Validator.getValidator<T>(schema);

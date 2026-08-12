@@ -6,6 +6,7 @@ import {
   SSEClientTransport,
   StreamableHTTPClientTransport,
   UnauthorizedError,
+  type AuthProvider,
   type GetPromptResult,
   type ReadResourceResult,
   type CacheableRequestOptions,
@@ -34,6 +35,13 @@ import { logger } from "./logger.ts";
 import { McpOAuthProvider } from "./mcp-oauth-provider.ts";
 import { extractOAuthConfig, supportsOAuth, type McpOAuthRuntime } from "./mcp-auth-flow.ts";
 import { invalidateAuthEntryCache, type AuthStorageOptions } from "./mcp-auth.ts";
+import {
+  createGoogleAuthProvider,
+  fetchGoogleAccessToken,
+  fetchGoogleIdentityToken,
+  isGoogleAuth,
+  resolveGoogleIdentityConfig,
+} from "./google-auth.ts";
 import { registerSamplingHandler, type ServerSamplingConfig } from "./sampling-handler.ts";
 import {
   handleUrlElicitation,
@@ -67,7 +75,7 @@ const abortCleanupPromises = new WeakMap<object, Promise<void>>();
 type HttpAuthProviderState =
   | { status: "disabled" }
   | { status: "implicit-deferred" }
-  | { status: "explicit"; provider: McpOAuthProvider }
+  | { status: "explicit"; provider: McpOAuthProvider | AuthProvider }
   | { status: "implicit-challenged"; provider: McpOAuthProvider };
 
 function isUnauthorizedHttpError(error: unknown): boolean {
@@ -876,14 +884,24 @@ export class McpServerManager {
       this.authStorageOptions,
       this.oauthRuntime?.signal,
     );
+    const createGoogleProvider = (): AuthProvider => {
+      if (definition.auth === "google-access-token") {
+        return createGoogleAuthProvider(serverName, () => fetchGoogleAccessToken());
+      }
+      const { audience, serviceAccount } = resolveGoogleIdentityConfig(definition, serverName);
+      return createGoogleAuthProvider(serverName, () => fetchGoogleIdentityToken(serviceAccount, audience));
+    };
 
     // Explicit OAuth checks secure storage immediately. Implicit OAuth defers
     // provider construction until the server proves authentication is needed.
-    let authState: HttpAuthProviderState = supportsOAuth(definition)
-      ? definition.auth === undefined
-        ? { status: "implicit-deferred" }
-        : { status: "explicit", provider: createAuthProvider() }
-      : { status: "disabled" };
+    // Google ADC modes attach an AuthProvider that refreshes tokens on demand.
+    let authState: HttpAuthProviderState = isGoogleAuth(definition)
+      ? { status: "explicit", provider: createGoogleProvider() }
+      : supportsOAuth(definition)
+        ? definition.auth === undefined
+          ? { status: "implicit-deferred" }
+          : { status: "explicit", provider: createAuthProvider() }
+        : { status: "disabled" };
 
     const attempt = async (
       kind: "streamable-http" | "sse",

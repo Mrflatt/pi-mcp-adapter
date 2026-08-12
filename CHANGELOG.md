@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Added `pi.mcp` package manifest entries so Pi packages can ship prefixed MCP server definitions without user MCP config edits. Thanks to [@bendavis78](https://github.com/bendavis78) for #376 and [@fmoda3](https://github.com/fmoda3) for the manifest design.
+- Added `auth: "google-access-token"` and `auth: "google-identity-token"` for Google Application Default Credentials. Access-token mode exchanges user ADC for a Google OAuth access token; identity-token mode impersonates a service account to mint an OIDC token for IAP-protected MCP servers.
 
 ### Fixed
 - Normalized MCP tool-call arguments before approval and transport so JSON-string arguments keep all fields and embedded quotes. Thanks to [@sebbean](https://github.com/sebbean) for PR #377.
@@ -17,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Kept compact MCP rows useful by showing a bounded tool-input preview and skipping leading blank output lines in collapsed result previews.
 - Recovered MCP gateway requests nested inside proxy `args` instead of silently showing status, and now rejects invalid nested gateway requests with guidance. Thanks to [@ibrmora](https://github.com/ibrmora) for #363.
 - Refreshed remote keep-alive tool catalogs before user input, adapter-triggered turns, and during health checks, reconnecting expired Streamable HTTP sessions so long-lived Pi sessions can discover replacement catalogs without restarting. Thanks to [@dmorn](https://github.com/dmorn) for #369 and PR #370.
+- Registered Google-proprietary JSON Schema formats (`google-duration`, `google-datetime`, `google-fieldmask`, `google-int64`, `google-uint32`, `google-uint64`) as pass-through validators so GCP MCP servers no longer emit AJV "unknown format" warnings on connect.
 
 ## [2.26.0] - 2026-08-14
 
