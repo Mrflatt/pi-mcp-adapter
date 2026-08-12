@@ -125,11 +125,66 @@ describe("proxy discovery", () => {
     });
   });
 
+  it("finds tools through configured search keywords", () => {
+    const state = createState();
+    state.config.mcpServers.demo!.searchKeywords = { find: ["zzalias finder"] };
+
+    expect(executeSearch(createState(), "zzalias").details).toMatchObject({ count: 0 });
+    expect(executeSearch(state, "zzalias").details).toMatchObject({
+      count: 1,
+      matches: [{ server: "demo", tool: "demo_find", score: expect.any(Number) }],
+    });
+  });
+
+  it("matches keyword keys by prefixed name and glob", () => {
+    const prefixed = createState();
+    prefixed.config.mcpServers.demo!.searchKeywords = { demo_find: ["zzalias"] };
+    expect(executeSearch(prefixed, "zzalias").details).toMatchObject({ count: 1, matches: [{ tool: "demo_find" }] });
+
+    const glob = createState();
+    glob.config.mcpServers.demo!.searchKeywords = { "*": ["zzalias"] };
+    expect(executeSearch(glob, "zzalias").details).toMatchObject({ count: 2 });
+  });
+
+  it("matches keywords in regex search mode", () => {
+    const state = createState();
+    state.config.mcpServers.demo!.searchKeywords = { find: ["zzalias finder"] };
+
+    expect(executeSearch(state, "^zzali", true).details).toMatchObject({
+      count: 1,
+      matches: [{ server: "demo", tool: "demo_find", score: 0 }],
+    });
+  });
+
+  it("keeps keywords out of search and describe output", () => {
+    const state = createState();
+    state.config.mcpServers.demo!.searchKeywords = { find: ["zzalias finder"] };
+
+    const search = executeSearch(state, "zzalias");
+    expect(search.content[0].text).toContain("demo_find");
+    // Only the echoed query may mention the keyword — never the configured phrase.
+    expect(JSON.stringify(search)).not.toContain("zzalias finder");
+
+    const describeResult = executeDescribe(state, "demo_find");
+    expect(JSON.stringify(describeResult)).not.toContain("zzalias");
+  });
+
   it("suggests the matching tool for a prefix-mangled describe name", () => {
     const result = executeDescribe(createState(), "demo_sear");
 
     expect(result.details).toMatchObject({ suggestions: ["demo_search"] });
     expect(result.content[0].text).toContain("Did you mean: demo_search");
+  });
+
+  it("does not suggest tools through configured search keywords", async () => {
+    const state = createState();
+    state.config.mcpServers.demo!.searchKeywords = { find: ["zzalias"] };
+
+    expect(executeSearch(state, "zzalias").details).toMatchObject({ count: 1, matches: [{ tool: "demo_find" }] });
+    expect(executeDescribe(state, "zzalias").details).toMatchObject({ suggestions: [] });
+
+    const call = await executeCall(state, "zzalias");
+    expect(call.details).toMatchObject({ error: "tool_not_found", suggestions: [] });
   });
 
   it("tells callers to invoke native Pi tools directly", async () => {
