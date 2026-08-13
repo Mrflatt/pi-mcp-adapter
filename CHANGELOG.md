@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.24.0] - 2026-08-13
+
 ### Added
 - Added per-server `searchKeywords` so `mcp({ search })` and `mcpScript` `tools.search` understand user-defined synonyms and aliases for tools. Keywords are keyed by tool name or glob and boost ranked and regex search only. They never appear in tool schemas, describe output, or the metadata cache. Thanks @Serisium for PR #336.
 
@@ -15,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Kept remote `/mcp-auth` authorization links reachable before the callback input opens. Thanks @trevorleibert-mixpanel for PR #331.
 - Cached OAuth credentials in memory and refreshed them after OAuth-backed 401 responses. Thanks @daniel-sampliner for PR #335.
 - Sanitized MCP server-name prefixes for provider-safe tool names while preserving server resolution. Thanks @triple-dex for issue #334.
+- Validated persisted npx resolver cache entries before reuse, including malformed and prototype-sensitive persisted keys.
 
 ## [2.23.0] - 2026-08-11
 
