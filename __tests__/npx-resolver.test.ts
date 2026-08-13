@@ -14,6 +14,7 @@ describe("npx-resolver", () => {
   });
 
   afterEach(() => {
+    vi.doUnmock("node:fs");
     process.env.HOME = originalHome;
     if (originalAgentDir === undefined) {
       delete process.env.PI_CODING_AGENT_DIR;
@@ -27,7 +28,7 @@ describe("npx-resolver", () => {
     }
   });
 
-  it("writes mcp-npx-cache.json to PI_CODING_AGENT_DIR", async () => {
+  it("writes mcp-npx-cache.json to PI_CODING_AGENT_DIR without extra arguments", async () => {
     const home = mkdtempSync(join(tmpdir(), "pi-mcp-npx-home-"));
     const agentDir = mkdtempSync(join(tmpdir(), "pi-mcp-npx-agent-"));
     const npmCache = mkdtempSync(join(tmpdir(), "pi-mcp-npx-cache-"));
@@ -39,11 +40,105 @@ describe("npx-resolver", () => {
     writeCachedPackage(npmCache, "demo-pkg");
 
     const { resolveNpxBinary } = await import("../npx-resolver.ts");
-    const result = await resolveNpxBinary("npx", ["-y", "demo-pkg"]);
+    const result = await resolveNpxBinary("npx", ["-y", "demo-pkg", "--token=secret-value"]);
+    const cache = readFileSync(join(agentDir, "mcp-npx-cache.json"), "utf-8");
 
-    expect(result).not.toBeNull();
+    expect(result?.extraArgs).toEqual(["--token=secret-value"]);
+    expect(cache).not.toContain("secret-value");
     expect(existsSync(join(agentDir, "mcp-npx-cache.json"))).toBe(true);
     expect(existsSync(join(home, ".pi", "agent", "mcp-npx-cache.json"))).toBe(false);
+  });
+
+  it("removes stale version-1 cache files on module import", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-npx-home-"));
+    const agentDir = mkdtempSync(join(tmpdir(), "pi-mcp-npx-agent-"));
+    const npmCache = mkdtempSync(join(tmpdir(), "pi-mcp-npx-cache-"));
+
+    process.env.HOME = home;
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    process.env.NPM_CONFIG_CACHE = npmCache;
+
+    writeFileSync(
+      join(agentDir, "mcp-npx-cache.json"),
+      JSON.stringify({
+        version: 1,
+        entries: {
+          [JSON.stringify(["npx", "-y", "demo-pkg", "--token=secret-value"] as const)]: {},
+        },
+      }),
+      "utf-8",
+    );
+    await import("../npx-resolver.ts");
+
+    expect(existsSync(join(agentDir, "mcp-npx-cache.json"))).toBe(false);
+  });
+
+  it("continues resolution when version-1 cache deletion fails", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-npx-home-"));
+    const agentDir = mkdtempSync(join(tmpdir(), "pi-mcp-npx-agent-"));
+    const npmCache = mkdtempSync(join(tmpdir(), "pi-mcp-npx-cache-"));
+
+    process.env.HOME = home;
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    process.env.NPM_CONFIG_CACHE = npmCache;
+
+    const cachePath = join(agentDir, "mcp-npx-cache.json");
+    writeFileSync(cachePath, JSON.stringify({ version: 1, entries: {} }), "utf-8");
+    vi.doMock("node:fs", async (importOriginal) => {
+      const fs = await importOriginal<typeof import("node:fs")>();
+      return {
+        ...fs,
+        unlinkSync: vi.fn(() => { throw new Error("permission denied"); }),
+        writeFileSync: vi.fn(() => { throw new Error("permission denied"); }),
+      };
+    });
+    vi.doMock("cross-spawn", () => ({
+      default: vi.fn(() => {
+        throw new Error("npm unavailable");
+      }),
+    }));
+
+    const { resolveNpxBinary } = await import("../npx-resolver.ts");
+    await expect(resolveNpxBinary("npx", ["-y", "missing-pkg"])).resolves.toBeNull();
+
+    expect(existsSync(cachePath)).toBe(true);
+  });
+
+  it("clears version-1 secrets and returns a cached package when cache save fails", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-npx-home-"));
+    const agentDir = mkdtempSync(join(tmpdir(), "pi-mcp-npx-agent-"));
+    const npmCache = mkdtempSync(join(tmpdir(), "pi-mcp-npx-cache-"));
+
+    process.env.HOME = home;
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    process.env.NPM_CONFIG_CACHE = npmCache;
+
+    const cachePath = join(agentDir, "mcp-npx-cache.json");
+    writeFileSync(cachePath, JSON.stringify({
+      version: 1,
+      entries: { [JSON.stringify(["npx", "demo-pkg", "--token=secret-value"])]: {} },
+    }), "utf-8");
+    const binPath = writeCachedPackage(npmCache, "demo-pkg");
+    vi.doMock("node:fs", async (importOriginal) => {
+      const fs = await importOriginal<typeof import("node:fs")>();
+      return {
+        ...fs,
+        unlinkSync: vi.fn(() => { throw new Error("permission denied"); }),
+        writeFileSync: vi.fn((path: string, data: string, options?: Parameters<typeof fs.writeFileSync>[2]) => {
+          if (path === cachePath && data === "") return fs.writeFileSync(path, data, options);
+          throw new Error("permission denied");
+        }),
+      };
+    });
+
+    const { resolveNpxBinary } = await import("../npx-resolver.ts");
+    expect(readFileSync(cachePath, "utf-8")).not.toContain("secret-value");
+
+    await expect(resolveNpxBinary("npx", ["-y", "demo-pkg", "--runtime=value"])).resolves.toEqual({
+      binPath,
+      extraArgs: ["--runtime=value"],
+      isJs: true,
+    });
   });
 
   it("uses cross-spawn to read npm's cache directory", async () => {
@@ -227,9 +322,9 @@ describe("npx-resolver", () => {
     writeFileSync(
       join(agentDir, "mcp-npx-cache.json"),
       JSON.stringify({
-        version: 1,
+        version: 2,
         entries: {
-          [JSON.stringify(["npx", "-y", "plainpkg@2.0.0"] as const)]: {
+          [JSON.stringify(["npx", "plainpkg@2.0.0", ""] as const)]: {
             resolvedBin: wrongBin,
             resolvedAt: Date.now(),
             packageVersion: "1.0.0",
@@ -245,7 +340,7 @@ describe("npx-resolver", () => {
     const cache = JSON.parse(readFileSync(join(agentDir, "mcp-npx-cache.json"), "utf-8"));
 
     expect(result?.binPath).toBe(correctBin);
-    expect(cache.entries[JSON.stringify(["npx", "-y", "plainpkg@2.0.0"])]?.packageVersion).toBe("2.0.0");
+    expect(cache.entries[JSON.stringify(["npx", "plainpkg@2.0.0", ""])]?.packageVersion).toBe("2.0.0");
   });
 });
 

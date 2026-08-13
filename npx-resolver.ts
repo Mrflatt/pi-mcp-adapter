@@ -1,11 +1,11 @@
 // npx-resolver.ts - Resolve npx/npm exec binaries to avoid npm parent processes
-import { existsSync, readFileSync, realpathSync, readdirSync, statSync, writeFileSync, renameSync, mkdirSync, openSync, readSync, closeSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, readdirSync, statSync, writeFileSync, renameSync, mkdirSync, openSync, readSync, closeSync, unlinkSync } from "node:fs";
 import { join, dirname, extname, resolve, sep } from "node:path";
 import { getAgentPath } from "./agent-dir.ts";
 import { throwIfAborted } from "./abort.ts";
 import crossSpawn from "cross-spawn";
 
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const EXACT_PACKAGE_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?$/;
 
@@ -53,7 +53,7 @@ export async function resolveNpxBinary(
   if (!parsed) return null;
 
   const packageSpec = parsePackageSpec(parsed.packageSpec);
-  const cacheKey = JSON.stringify([command, ...args]);
+  const cacheKey = JSON.stringify([command, parsed.packageSpec, parsed.binName ?? ""]);
   const cache = loadCache();
   const cached = cache?.entries?.[cacheKey];
 
@@ -434,41 +434,77 @@ function getNpxCachePath(): string {
   return getAgentPath("mcp-npx-cache.json");
 }
 
+function clearLegacyCache(): boolean {
+  const cachePath = getNpxCachePath();
+  if (!existsSync(cachePath)) return false;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(cachePath, "utf-8"));
+  } catch {
+    return false;
+  }
+
+  if (!parsed || typeof parsed !== "object" || (parsed as Record<string, unknown>).version !== 1) return false;
+  try {
+    unlinkSync(cachePath);
+  } catch {
+    try {
+      writeFileSync(cachePath, "", "utf-8");
+    } catch {
+      // Cache cleanup is best effort; resolution must still proceed.
+    }
+  }
+  return true;
+}
+
+clearLegacyCache();
+
 function loadCache(): NpxCache | null {
+  if (clearLegacyCache()) return null;
+
   const cachePath = getNpxCachePath();
   if (!existsSync(cachePath)) return null;
+
+  let parsed: unknown;
   try {
-    const raw = JSON.parse(readFileSync(cachePath, "utf-8"));
-    if (!raw || typeof raw !== "object") return null;
-    if (raw.version !== CACHE_VERSION) return null;
-    if (!raw.entries || typeof raw.entries !== "object") return null;
-    return raw as NpxCache;
+    parsed = JSON.parse(readFileSync(cachePath, "utf-8"));
   } catch {
     return null;
   }
+
+  if (!parsed || typeof parsed !== "object") return null;
+  const raw = parsed as Record<string, unknown>;
+  if (raw.version !== CACHE_VERSION) return null;
+  if (!raw.entries || typeof raw.entries !== "object") return null;
+  return raw as unknown as NpxCache;
 }
 
 function saveCacheEntry(key: string, entry: NpxCacheEntry): void {
-  const cachePath = getNpxCachePath();
-  const dir = dirname(cachePath);
-  mkdirSync(dir, { recursive: true });
-
-  let merged: NpxCache = { version: CACHE_VERSION, entries: {} };
   try {
-    if (existsSync(cachePath)) {
-      const existing = JSON.parse(readFileSync(cachePath, "utf-8")) as NpxCache;
-      if (existing && existing.version === CACHE_VERSION && existing.entries) {
-        merged.entries = { ...existing.entries };
-      }
-    }
-  } catch {
-    // Ignore parse errors
-  }
+    const cachePath = getNpxCachePath();
+    const dir = dirname(cachePath);
+    mkdirSync(dir, { recursive: true });
 
-  merged.entries[key] = entry;
-  const tmpPath = `${cachePath}.${process.pid}.tmp`;
-  writeFileSync(tmpPath, JSON.stringify(merged, null, 2), "utf-8");
-  renameSync(tmpPath, cachePath);
+    let merged: NpxCache = { version: CACHE_VERSION, entries: {} };
+    try {
+      if (existsSync(cachePath)) {
+        const existing = JSON.parse(readFileSync(cachePath, "utf-8")) as NpxCache;
+        if (existing && existing.version === CACHE_VERSION && existing.entries) {
+          merged.entries = { ...existing.entries };
+        }
+      }
+    } catch {
+      // Ignore parse errors
+    }
+
+    merged.entries[key] = entry;
+    const tmpPath = `${cachePath}.${process.pid}.tmp`;
+    writeFileSync(tmpPath, JSON.stringify(merged, null, 2), "utf-8");
+    renameSync(tmpPath, cachePath);
+  } catch {
+    // Cache writes are best effort; resolution must still proceed.
+  }
 }
 
 function safeRealpath(path: string): string {
