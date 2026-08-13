@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.25.0] - 2026-08-13
+
 ### Added
 - Added `settings.notifyOnStartupConnect` to suppress successful MCP startup connection notices. Thanks @pierre-mgmt for issue #341.
 - Added compact self-rendered MCP proxy and direct-tool result rows by default, with `settings.toolResultRendering: "boxed"` for the legacy boxed row and `settings.collapsedResultLines` for 1-3 collapsed result lines. Thanks @pierre-mgmt for issue #349.
