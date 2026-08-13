@@ -642,18 +642,24 @@ export interface McpPanelResult {
 /**
  * Get server prefix based on tool prefix mode.
  */
+function sanitizeServerPrefix(serverName: string): string {
+  return Array.from(serverName, char =>
+    /^[A-Za-z0-9]$/.test(char) ? char : `_${char.codePointAt(0)!.toString(16)}_`,
+  ).join("");
+}
+
 export function getServerPrefix(
   serverName: string,
   mode: ToolPrefix
 ): string {
   if (mode === "none") return "";
   if (mode === "short") {
-    let short = serverName.replace(/-?mcp$/i, "").replace(/-/g, "_");
+    let short = sanitizeServerPrefix(serverName.replace(/-?mcp$/i, ""));
     if (!short) short = "mcp";
     return short;
   }
-  if (mode === "mcp") return `mcp__${serverName.replace(/-/g, "_")}`;
-  return serverName.replace(/-/g, "_");
+  if (mode === "mcp") return `mcp__${sanitizeServerPrefix(serverName)}`;
+  return sanitizeServerPrefix(serverName);
 }
 
 /**
@@ -707,11 +713,9 @@ export function resolveServerFromToolName(
   if (candidates.length === 0) return undefined;
   candidates.sort((a, b) => b.prefix.length - a.prefix.length);
   const best = candidates[0];
-  // Fail safe: two distinct server names can normalize to the same prefix
-  // (e.g. my-server and my_server both -> my_server under "server" mode).
-  // When that happens the owning server is ambiguous; return undefined so a
-  // downstream permission gate falls back to its existing wildcard path rather
-  // than enforcing a rule against the wrong server.
+  // Fail safe: short mode can intentionally map names such as foo and foo-mcp
+  // to the same prefix. Return undefined so a downstream permission gate uses
+  // its existing wildcard path rather than enforcing a rule against the wrong server.
   if (candidates.some((c) => c.prefix === best!.prefix && c.name !== best!.name)) {
     return undefined;
   }
@@ -729,7 +733,7 @@ export function formatPromptCommandName(
   serverName: string,
   prefix: ToolPrefix,
 ): string {
-  const serverPart = getServerPrefix(serverName, prefix) || serverName.replace(/-/g, "_") || "server";
+  const serverPart = getServerPrefix(serverName, prefix) || sanitizeServerPrefix(serverName) || "server";
   return `mcp__${serverPart}__${sanitizePromptName(promptName)}`;
 }
 

@@ -37,7 +37,22 @@ describe("formatToolName", () => {
     expect(formatToolName("namespace.tool", "demo", "server")).toBe("demo_namespace_tool");
     expect(formatToolName("namespace.tool", "demo-mcp", "short")).toBe("demo_namespace_tool");
     expect(formatToolName("namespace.tool", "demo", "none")).toBe("namespace_tool");
-    expect(formatToolName("namespace.tool", "demo-mcp", "mcp")).toBe("mcp__demo_mcp_namespace_tool");
+    expect(formatToolName("namespace.tool", "demo-mcp", "mcp")).toBe("mcp__demo_2d_mcp_namespace_tool");
+  });
+
+  it("sanitizes server names in live tool and resource metadata", () => {
+    const { metadata } = buildToolMetadata(
+      [{ name: "find", description: "Find" }] as any,
+      [{ name: "guide", uri: "file://guide" }] as any,
+      { command: "demo" },
+      "my server",
+      "server",
+    );
+
+    expect(metadata.map((tool) => tool.name)).toEqual([
+      "my_20_server_find",
+      "my_20_server_read_guide",
+    ]);
   });
 });
 
@@ -535,6 +550,38 @@ describe("excludeTools filtering", () => {
     expect(specs.map((spec) => spec.prefixedName)).toEqual(["figma_get_nodes"]);
   });
 
+  it("registers servers that previously collided after prefix escaping", () => {
+    const config: McpConfig = {
+      settings: { toolPrefix: "server", directTools: true },
+      mcpServers: {
+        "a b": { command: "first" },
+        "a-20-b": { command: "second" },
+      },
+    };
+    const cache: MetadataCache = {
+      version: 1,
+      servers: {
+        "a b": {
+          configHash: computeServerHash(config.mcpServers["a b"]),
+          cachedAt: Date.now(),
+          tools: [{ name: "search", description: "First" }],
+          resources: [],
+        },
+        "a-20-b": {
+          configHash: computeServerHash(config.mcpServers["a-20-b"]),
+          cachedAt: Date.now(),
+          tools: [{ name: "search", description: "Second" }],
+          resources: [],
+        },
+      },
+    };
+
+    expect(resolveDirectTools(config, cache, "server").map((spec) => [spec.serverName, spec.prefixedName])).toEqual([
+      ["a b", "a_20_b_search"],
+      ["a-20-b", "a_2d_20_2d_b_search"],
+    ]);
+  });
+
   it("honors per-server toolPrefix during direct tool registration from cache", () => {
     const config: McpConfig = {
       settings: { toolPrefix: "none" },
@@ -641,7 +688,7 @@ describe("excludeTools filtering", () => {
           command: "npx",
           args: ["-y", "my-server"],
           directTools: true,
-          excludeTools: ["mcp__my_server_do_thing"],
+          excludeTools: ["mcp__my_2d_server_do_thing"],
         },
       },
     };
@@ -663,7 +710,7 @@ describe("excludeTools filtering", () => {
 
     const specs = resolveDirectTools(config, cache, "mcp");
 
-    expect(specs.map((spec) => spec.prefixedName)).toEqual(["mcp__my_server_other_tool"]);
+    expect(specs.map((spec) => spec.prefixedName)).toEqual(["mcp__my_2d_server_other_tool"]);
   });
 
   it("matches prefixed exclusions even when toolPrefix is none", () => {
