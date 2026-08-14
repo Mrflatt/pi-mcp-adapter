@@ -146,6 +146,10 @@ export interface HttpRequestCommandEnvelope {
   bodyBase64: string;
 }
 
+type CommandResult =
+  | { status: "error"; error: Error }
+  | { status: "success"; headers: Headers };
+
 function resolvedCommand(config: HttpRequestHeadersCommand): {
   command: string;
   args: string[];
@@ -217,25 +221,25 @@ async function invokeRequestHeadersCommand(
     const descendantTracker = USE_PROCESS_GROUP ? setInterval(trackPosixDescendants, 50) : undefined;
     descendantTracker?.unref();
 
-    const finish = (error?: Error, headers?: Headers) => {
+    const finish = (result: CommandResult) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       if (descendantTracker) clearInterval(descendantTracker);
       signal.removeEventListener("abort", abort);
-      if (error) reject(error);
-      else resolve(headers!);
+      if (result.status === "error") reject(result.error);
+      else resolve(result.headers);
     };
-    const finishAfterKill = (error?: Error, headers?: Headers) => {
+    const finishAfterKill = (result: CommandResult) => {
       try {
         killRequestHeadersCommand(child, trackedPosixDescendantPids, cleanupToken);
-        finish(error, headers);
+        finish(result);
       } catch (cleanupError) {
-        finish(cleanupError instanceof Error ? cleanupError : new Error(String(cleanupError)));
+        finish({ status: "error", error: cleanupError instanceof Error ? cleanupError : new Error(String(cleanupError)) });
       }
     };
     const failAfterKill = (message: string) => {
-      finishAfterKill(trackingError ?? new Error(message));
+      finishAfterKill({ status: "error", error: trackingError ?? new Error(message) });
     };
     const abort = () => {
       failAfterKill("HTTP request headers command aborted");
@@ -250,7 +254,7 @@ async function invokeRequestHeadersCommand(
       return;
     }
 
-    child.on("error", () => finish(new Error("HTTP request headers command failed to start")));
+    child.on("error", () => finish({ status: "error", error: new Error("HTTP request headers command failed to start") }));
     child.stdout.on("data", (chunk: Buffer | string) => {
       if (settled) return;
       stdout = Buffer.concat([stdout, Buffer.from(chunk)]);
@@ -272,22 +276,22 @@ async function invokeRequestHeadersCommand(
       try {
         parsed = JSON.parse(stdout.toString("utf8"));
       } catch {
-        finishAfterKill(new Error("HTTP request headers command returned invalid JSON"));
+        finishAfterKill({ status: "error", error: new Error("HTTP request headers command returned invalid JSON") });
         return;
       }
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        finishAfterKill(new Error("HTTP request headers command must return a JSON object"));
+        finishAfterKill({ status: "error", error: new Error("HTTP request headers command must return a JSON object") });
         return;
       }
       const entries = Object.entries(parsed);
       if (entries.some(([, value]) => typeof value !== "string")) {
-        finishAfterKill(new Error("HTTP request headers command values must be strings"));
+        finishAfterKill({ status: "error", error: new Error("HTTP request headers command values must be strings") });
         return;
       }
       try {
-        finishAfterKill(undefined, new Headers(entries as Array<[string, string]>));
+        finishAfterKill({ status: "success", headers: new Headers(entries as Array<[string, string]>) });
       } catch {
-        finishAfterKill(new Error("HTTP request headers command returned an invalid header"));
+        finishAfterKill({ status: "error", error: new Error("HTTP request headers command returned an invalid header") });
       }
     });
 
