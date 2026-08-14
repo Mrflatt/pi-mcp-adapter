@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.26.0] - 2026-08-14
+
 ### Added
 - Added per-server `requestHeadersCommand` support for deriving fail-closed HTTP headers from the exact outbound request on every Streamable HTTP or SSE call. Thanks @kgreen18 for PR #353.
 - Added `settings.warnOnLargeDirectTools` to suppress the advisory for 75 or more resolved direct tools. Thanks @Roshvan for issue #358.
