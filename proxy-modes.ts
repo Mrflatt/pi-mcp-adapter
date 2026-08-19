@@ -13,7 +13,7 @@ import { reconstructPromptMetadata } from "./metadata-cache.ts";
 import { resolveMcpResultContent, transformMcpContent, transformMcpResourceContents } from "./tool-registrar.ts";
 import { guardMcpOutput, guardedMcpDetails, resolveMcpOutputGuardOptions } from "./mcp-output-guard.ts";
 import { maybeStartUiSession, summarizeUiSessionResult, type UiSessionRuntime } from "./ui-session.ts";
-import { formatAuthRequiredMessage, formatMcpStatus, resolveServerUrl, truncateAtWord } from "./utils.ts";
+import { formatAuthRequiredMessage, formatMcpStatus, normalizeToolArguments, resolveServerUrl, truncateAtWord } from "./utils.ts";
 import { authenticate, completeAuthFromInput, startAuth, supportsOAuth } from "./mcp-auth-flow.ts";
 import { SessionRecoveryAuthRequiredError, withSessionRecovery } from "./session-recovery.ts";
 import { paginate, rankSuggestions, rankToolMatches, resolveSearchKeywords } from "./search-ranking.ts";
@@ -1136,11 +1136,12 @@ export async function executeCall(
     return disabledCallResult(serverName, toolMeta);
   }
 
+  const normalizedArgs = toolMeta.resourceUri ? args ?? {} : normalizeToolArguments(args);
   const approval = await ensureToolCallApproved(
     state,
     serverName,
     toolMeta,
-    args,
+    normalizedArgs,
     ownedSignal,
     origin ?? (toolMeta.resourceUri ? "resource" : "proxy"),
   );
@@ -1217,7 +1218,7 @@ export async function executeCall(
       ? await maybeStartUiSession(state, {
           serverName,
           toolName: toolMeta.originalName,
-          toolArgs: args ?? {},
+          toolArgs: normalizedArgs,
           uiResourceUri: toolMeta.uiResourceUri,
           ...(toolMeta.uiStreamMode !== undefined ? { streamMode: toolMeta.uiStreamMode } : {}),
           ...(signal ? { signal } : {}),
@@ -1235,7 +1236,7 @@ export async function executeCall(
       serverName,
       (conn) => abortable(conn.client.callTool({
         name: toolMeta.originalName,
-        arguments: args ?? {},
+        arguments: normalizedArgs,
         _meta: uiSession?.requestMeta,
       }, requestOptions), ownedSignal),
     );
