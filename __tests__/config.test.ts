@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -25,6 +25,251 @@ describe("config discovery", () => {
       process.env.PI_PACKAGE_DIR = originalPackageDir;
     }
     process.chdir(originalCwd);
+  });
+
+  it("loads package manifest MCP servers below user config without package settings or imports", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-package-home-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-mcp-package-project-"));
+    process.env.HOME = home;
+    process.chdir(project);
+
+    const packageRoot = join(home, ".pi", "agent", "npm", "node_modules", "@acme", "tools");
+    writeJson(join(home, ".pi", "agent", "settings.json"), { packages: ["npm:@acme/tools@1.0.0"] });
+    writeJson(join(packageRoot, "package.json"), { name: "@acme/tools", pi: { mcp: ["./mcp.json", "./extra.json"] } });
+    writeJson(join(packageRoot, "mcp.json"), {
+      settings: { directTools: true },
+      imports: ["vscode"],
+      mcpServers: {
+        tools: { command: "package-command", args: ["--package"], env: { PACKAGE: "1" } },
+        full: { command: "package-full", args: ["--package-full"], env: { PACKAGE: "1" } },
+        "tools.db": { command: "first" },
+      },
+    });
+    writeJson(join(packageRoot, "extra.json"), {
+      mcpServers: {
+        tools_db: { command: "duplicate" },
+      },
+    });
+    writeJson(join(project, ".mcp.json"), {
+      settings: { directTools: false },
+      mcpServers: {
+        acme_tools__tools: { command: "user-command" },
+        acme_tools__full: { command: "user-full", args: ["--user-full"], env: { USER: "1" } },
+      },
+    });
+
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { loadMcpConfig } = await import("../config.ts");
+    const config = loadMcpConfig();
+    expect(config.settings).toEqual({ directTools: false });
+    expect(config.mcpServers.acme_tools__tools).toEqual({
+      command: "user-command",
+      args: ["--package"],
+      env: { PACKAGE: "1" },
+    });
+    expect(config.mcpServers.acme_tools__full).toEqual({
+      command: "user-full",
+      args: ["--user-full"],
+      env: { USER: "1" },
+    });
+    expect(config.mcpServers.acme_tools__tools_db).toEqual({ command: "first" });
+    expect(warning).toHaveBeenCalledWith(expect.stringContaining("duplicate normalized MCP server acme_tools__tools_db"));
+    warning.mockRestore();
+  });
+
+  it("drops incompatible package transport fields when a normal override changes transport", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-package-transport-home-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-mcp-package-transport-project-"));
+    process.env.HOME = home;
+    process.chdir(project);
+
+    const packageRoot = join(home, ".pi", "agent", "npm", "node_modules", "acme-tools");
+    writeJson(join(home, ".pi", "agent", "settings.json"), { packages: ["npm:acme-tools"] });
+    writeJson(join(packageRoot, "package.json"), { name: "acme-tools", pi: { mcp: "./mcp.json" } });
+    writeJson(join(packageRoot, "mcp.json"), {
+      mcpServers: {
+        http: {
+          url: "https://package.test/mcp",
+          headers: { Authorization: "Bearer package" },
+          bearerTokenEnv: "PACKAGE_TOKEN",
+          requestHeadersCommand: "headers",
+          httpTransport: "sse",
+        },
+        stdio: {
+          command: "package-command",
+          args: ["--package"],
+          env: { PACKAGE: "1" },
+          cwd: "/package",
+          pluginDataDir: "/package/data",
+          literalEnv: true,
+        },
+        socket: {
+          url: "https://package.test/socket",
+          headers: { Authorization: "Bearer package" },
+          bearerTokenEnv: "PACKAGE_TOKEN",
+          requestHeadersCommand: "headers",
+          httpTransport: "sse",
+        },
+      },
+    });
+    writeJson(join(project, ".mcp.json"), {
+      mcpServers: {
+        "acme-tools__http": { command: "local-command" },
+        "acme-tools__stdio": { url: "https://project.test/mcp" },
+        "acme-tools__socket": { socket: "/tmp/project.sock" },
+      },
+    });
+
+    const { loadMcpConfig } = await import("../config.ts");
+    expect(loadMcpConfig().mcpServers).toMatchObject({
+      "acme-tools__http": { command: "local-command" },
+      "acme-tools__stdio": { url: "https://project.test/mcp" },
+      "acme-tools__socket": { socket: "/tmp/project.sock" },
+    });
+    expect(loadMcpConfig().mcpServers["acme-tools__http"]).toEqual({ command: "local-command" });
+    expect(loadMcpConfig().mcpServers["acme-tools__stdio"]).toEqual({ url: "https://project.test/mcp" });
+    expect(loadMcpConfig().mcpServers["acme-tools__socket"]).toEqual({ socket: "/tmp/project.sock" });
+  });
+
+  it("does not load a package source that escapes Pi's managed git directory", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-package-escape-home-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-mcp-package-escape-project-"));
+    process.env.HOME = home;
+    process.chdir(project);
+
+    const escapedPackage = join(home, ".pi", "outside-package");
+    writeJson(join(home, ".pi", "agent", "settings.json"), { packages: ["git:../../outside-package"] });
+    writeJson(join(escapedPackage, "package.json"), { name: "outside-package", pi: { mcp: "./mcp.json" } });
+    writeJson(join(escapedPackage, "mcp.json"), { mcpServers: { unsafe: { command: "unsafe" } } });
+
+    const { loadMcpConfig } = await import("../config.ts");
+    expect(loadMcpConfig().mcpServers).toEqual({});
+  });
+
+  it("loads raw HTTPS and SSH package sources from Pi's managed git directory", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-package-git-home-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-mcp-package-git-project-"));
+    process.env.HOME = home;
+    process.chdir(project);
+
+    const gitRoot = join(home, ".pi", "agent", "git", "github.com", "acme");
+    writeJson(join(home, ".pi", "agent", "settings.json"), {
+      packages: ["https://github.com/acme/http-tools", "ssh://git@github.com/acme/ssh-tools", "git@github.com:acme/scp-tools.git"],
+    });
+    writeJson(join(gitRoot, "http-tools", "package.json"), { name: "http-tools", pi: { mcp: "./mcp.json" } });
+    writeJson(join(gitRoot, "http-tools", "mcp.json"), { mcpServers: { http: { command: "http" } } });
+    writeJson(join(gitRoot, "ssh-tools", "package.json"), { name: "ssh-tools", pi: { mcp: "./mcp.json" } });
+    writeJson(join(gitRoot, "ssh-tools", "mcp.json"), { mcpServers: { ssh: { command: "ssh" } } });
+    writeJson(join(gitRoot, "scp-tools", "package.json"), { name: "scp-tools", pi: { mcp: "./mcp.json" } });
+    writeJson(join(gitRoot, "scp-tools", "mcp.json"), { mcpServers: { scp: { command: "scp" } } });
+
+    const { loadMcpConfig } = await import("../config.ts");
+    expect(loadMcpConfig().mcpServers).toEqual({
+      "http-tools__http": { command: "http" },
+      "ssh-tools__ssh": { command: "ssh" },
+      "scp-tools__scp": { command: "scp" },
+    });
+  });
+
+  it("skips a package MCP symlink that resolves outside its package root", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-package-symlink-home-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-mcp-package-symlink-project-"));
+    process.env.HOME = home;
+    process.chdir(project);
+
+    const packageRoot = join(home, ".pi", "agent", "npm", "node_modules", "acme-tools");
+    const outsideConfig = join(project, "outside-mcp.json");
+    writeJson(join(home, ".pi", "agent", "settings.json"), { packages: ["npm:acme-tools"] });
+    writeJson(join(packageRoot, "package.json"), { name: "acme-tools", pi: { mcp: "./linked-mcp.json" } });
+    writeJson(outsideConfig, { mcpServers: { outside: { command: "unsafe" } } });
+    symlinkSync(outsideConfig, join(packageRoot, "linked-mcp.json"));
+
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { loadMcpConfig } = await import("../config.ts");
+    expect(loadMcpConfig().mcpServers).toEqual({});
+    expect(warning).toHaveBeenCalledWith(expect.stringContaining("file must stay inside the package"));
+    warning.mockRestore();
+  });
+
+  it("gives project package settings precedence over matching user package settings", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-package-precedence-home-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-mcp-package-precedence-project-"));
+    process.env.HOME = home;
+    process.chdir(project);
+
+    const globalPackage = join(home, ".pi", "agent", "global-package");
+    const projectPackage = join(project, ".pi", "project-package");
+    writeJson(join(home, ".pi", "agent", "settings.json"), { packages: ["./global-package"] });
+    writeJson(join(project, ".pi", "settings.json"), { packages: ["./project-package"] });
+    writeJson(join(globalPackage, "package.json"), { name: "acme-tools", pi: { mcp: "./mcp.json" } });
+    writeJson(join(globalPackage, "mcp.json"), { mcpServers: { docs: { command: "global" } } });
+    writeJson(join(projectPackage, "package.json"), { name: "acme-tools", pi: { mcp: "./mcp.json" } });
+    writeJson(join(projectPackage, "mcp.json"), { mcpServers: { docs: { command: "project" } } });
+
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { loadMcpConfig } = await import("../config.ts");
+    expect(loadMcpConfig().mcpServers).toEqual({ "acme-tools__docs": { command: "project" } });
+    warning.mockRestore();
+  });
+
+  it("keeps unspecified Agent Plugin fields when normal config overrides a plugin server", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-plugin-override-home-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-mcp-plugin-override-project-"));
+    process.env.HOME = home;
+    process.chdir(project);
+
+    const plugin = join(project, "plugins", "acme-tools");
+    writeJson(join(plugin, "plugin.json"), {
+      $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      name: "acme.tools",
+    });
+    writeJson(join(plugin, "mcp.json"), {
+      $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+      mcpServers: { local: { type: "stdio", command: "node", args: ["plugin.js"] } },
+    });
+    writeJson(join(project, ".mcp.json"), {
+      settings: { agentPluginPaths: ["./plugins/acme-tools"] },
+      mcpServers: { acme_tools__local: { command: "override-node" } },
+    });
+
+    const { loadMcpConfig } = await import("../config.ts");
+    expect(loadMcpConfig().mcpServers.acme_tools__local).toMatchObject({
+      command: "override-node",
+      args: ["plugin.js"],
+      cwd: realpathSync(plugin),
+      env: { PLUGIN_ROOT: realpathSync(plugin) },
+    });
+  });
+
+  it("suppresses a package server that collides with an Agent Plugin server", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-mcp-package-plugin-collision-home-"));
+    const project = mkdtempSync(join(tmpdir(), "pi-mcp-package-plugin-collision-project-"));
+    process.env.HOME = home;
+    process.chdir(project);
+
+    const packageRoot = join(home, ".pi", "agent", "npm", "node_modules", "acme-tools");
+    const plugin = join(project, "plugins", "acme-tools");
+    writeJson(join(home, ".pi", "agent", "settings.json"), { packages: ["npm:acme-tools"] });
+    writeJson(join(packageRoot, "package.json"), { name: "acme-tools", pi: { mcp: "./mcp.json" } });
+    writeJson(join(packageRoot, "mcp.json"), {
+      mcpServers: { local: { command: "package", args: ["--package"], env: { PACKAGE: "1" } } },
+    });
+    writeJson(join(plugin, "plugin.json"), {
+      $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      name: "acme.tools",
+    });
+    writeJson(join(plugin, "mcp.json"), {
+      $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+      mcpServers: { local: { type: "stdio", command: "node", args: ["plugin.js"] } },
+    });
+    writeJson(join(project, ".mcp.json"), { settings: { agentPluginPaths: ["./plugins/acme-tools"] } });
+
+    const { loadMcpConfig } = await import("../config.ts");
+    expect(loadMcpConfig().mcpServers.acme_tools__local).toMatchObject({
+      command: "node",
+      args: ["plugin.js"],
+    });
+    expect(loadMcpConfig().mcpServers.acme_tools__local).not.toHaveProperty("env.PACKAGE");
   });
 
   it("drops malformed server entries at the config boundary", async () => {

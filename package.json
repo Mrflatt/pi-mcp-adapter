@@ -88,6 +88,7 @@
     "ui-tool-visibility.ts",
     "ui-app-bridge-helpers.ts",
     "config.ts",
+    "package-mcp-loader.ts",
     "server-manager.ts",
     "request-headers-command.ts",
     "unix-socket-transport.ts",
