@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added `pi.mcp` package manifest entries so Pi packages can ship prefixed MCP server definitions without user MCP config edits. Thanks to [@bendavis78](https://github.com/bendavis78) for #376 and [@fmoda3](https://github.com/fmoda3) for the manifest design.
+
 ### Fixed
 - Normalized MCP tool-call arguments before approval and transport so JSON-string arguments keep all fields and embedded quotes. Thanks to [@sebbean](https://github.com/sebbean) for PR #377.
 - Scoped session tool approvals to the approved argument payload instead of every later call to the same tool. Thanks to [@spaceshipmike](https://github.com/spaceshipmike) for #367.

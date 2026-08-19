@@ -6,6 +6,7 @@ import { parse as parseToml } from "smol-toml";
 import stripJsonComments from "strip-json-comments";
 import { getAgentPath, getConfigDirName } from "./agent-dir.ts";
 import { getAgentPluginSummaries, loadAgentPluginConfigs, type AgentPluginSummary } from "./agent-plugin-loader.ts";
+import { loadPackageMcpConfigs } from "./package-mcp-loader.ts";
 import { isServerDisabled, type HostConfigDiscovery, type McpConfig, type ServerEntry, type McpSettings, type ImportKind, type ServerProvenance } from "./types.ts";
 import { toStringRecord } from "./utils.ts";
 
@@ -306,8 +307,12 @@ export function loadMcpConfig(overridePath?: string, cwd = process.cwd()): McpCo
     config = mergeConfigs(config, expandImports(loaded, cwd));
   }
 
+  const packageConfig = loadPackageMcpConfigs(cwd);
   const pluginConfig = loadAgentPluginConfigs(config.settings?.agentPluginPaths, cwd);
-  return mergeConfigs(pluginConfig, config);
+  const packageServers = Object.fromEntries(
+    Object.entries(packageConfig.mcpServers).filter(([name]) => !Object.hasOwn(pluginConfig.mcpServers, name)),
+  );
+  return mergeConfigs({ mcpServers: packageServers }, mergeConfigs(pluginConfig, config));
 }
 
 function getMergedSettings(overridePath?: string, cwd = process.cwd()): McpSettings | undefined {
@@ -491,17 +496,30 @@ function mergeServerMaps(
     // applies (it is spread last). Behaviour is unchanged when the url is
     // identical or the override omits `url` (partial overrides still inherit).
     let baseEntry: ServerEntry = existing ?? {};
-    if (existing && typeof definition.socket === "string") {
+    if (existing && typeof definition.command === "string") {
       baseEntry = { ...existing };
       for (const field of [
-        "command", "args", "env", "cwd", "url", "headers", "auth",
-        "bearerToken", "bearerTokenEnv", "oauth",
+        "url", "headers", "requestHeadersCommand", "auth", "bearerToken",
+        "bearerTokenEnv", "oauth", "httpTransport", "socket",
       ] as const) {
         delete baseEntry[field];
       }
-    } else if (existing?.socket && (typeof definition.command === "string" || typeof definition.url === "string")) {
+    } else if (existing && typeof definition.url === "string") {
       baseEntry = { ...existing };
-      delete baseEntry.socket;
+      for (const field of [
+        "command", "args", "env", "cwd", "pluginDataDir", "literalEnv", "socket",
+      ] as const) {
+        delete baseEntry[field];
+      }
+    } else if (existing && typeof definition.socket === "string") {
+      baseEntry = { ...existing };
+      for (const field of [
+        "command", "args", "env", "cwd", "pluginDataDir", "literalEnv", "url",
+        "headers", "requestHeadersCommand", "auth", "bearerToken", "bearerTokenEnv",
+        "oauth", "httpTransport",
+      ] as const) {
+        delete baseEntry[field];
+      }
     }
     if (existing && typeof definition.url === "string" && definition.url !== existing.url) {
       if (baseEntry === existing) baseEntry = { ...existing };
